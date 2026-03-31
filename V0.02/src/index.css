@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Anton", sans-serif;
+
+  --color-primary: #c8f906;
+  --color-secondary: #00FFFF;
+  --color-background: #000000;
+  --color-surface: #111111;
+  --color-muted: #444444;
+  --color-text-main: #F4F4F4;
+  --color-danger: #FF0033;
+
+  --shadow-brutal: 4px 4px 0px #c8f906;
+  --shadow-brutal-danger: 4px 4px 0px #FF0033;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Space+Mono:wght@400;700&family=Anton&display=swap');
+
+@layer base {
+  body {
+    @apply bg-background text-text-main font-sans uppercase selection:bg-primary selection:text-black;
+  }
+}
+
+@layer utilities {
+  .brutal-border {
+    border: 2px solid var(--color-muted);
+  }
+
+  .brutal-border-primary {
+    border: 2px solid var(--color-primary);
+  }
+
+  .brutal-card {
+    background-color: var(--color-surface);
+    border: 2px solid var(--color-muted);
+    border-radius: 0.125rem;
+    padding: 1rem;
+    transition: all 0.2s;
+  }
+
+  .brutal-card-active {
+    border-color: var(--color-primary);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .glitch-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0.25rem;
+    background-color: var(--color-primary);
+  }
+
+  .brutal-btn {
+    background-color: var(--color-primary);
+    color: black;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    height: 3.5rem;
+    border-radius: 0.125rem;
+    border: 2px solid black;
+    box-shadow: var(--shadow-brutal);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .brutal-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+  }
+
+  .brutal-input {
+    background-color: var(--color-background);
+    border: 2px solid var(--color-muted);
+    color: var(--color-text-main);
+    height: 3.5rem;
+    border-radius: 0.25rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    padding: 0 0.5rem;
+    width: 100%;
+    transition: all 0.2s;
+    text-align: center;
+  }
+
+  .brutal-input:focus {
+    outline: none;
+    border-color: var(--color-secondary);
+  }
+}
+
