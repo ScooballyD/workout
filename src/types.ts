@@ -9,8 +9,8 @@ export interface Exercise {
   name: string;
   sets: number;
   reps: string;
-  logs: SetLog[];
-  lastLogs?: SetLog[];
+  logs: Array<SetLog | undefined>;
+  lastLogs?: Array<SetLog | undefined>;
   recommended?: {
     weight: number;
     reps: number;

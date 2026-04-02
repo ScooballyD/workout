@@ -22,6 +22,16 @@ import {
   Lock
 } from 'lucide-react';
 import { cn } from './lib/utils';
+import {
+  DEFAULT_SETTINGS,
+  normalizeExercisesForStorage,
+  normalizePlansForStorage,
+  normalizePrsForStorage,
+  normalizeSettings,
+  parseStoredString,
+  parseStoredValue,
+  validateImportedBackup,
+} from './lib/backup';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
 
@@ -103,7 +113,7 @@ const DailyGrind = ({
     let defaultReps = exercise.recommended?.reps || 0;
 
     const lastLog = exercise.lastLogs?.[actualSetIndex];
-    if (lastLog) {
+    if (lastLog?.completed) {
       defaultWeight = lastLog.weight;
       defaultReps = lastLog.reps + (autoIncrement ? 1 : 0);
     } else if (autoIncrement && currentWeek > 1) {
@@ -229,7 +239,7 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
     let weight = ex.recommended?.weight || 0;
     let reps = ex.recommended?.reps || 0;
     const lastLog = ex.lastLogs?.[i];
-    if (lastLog) {
+    if (lastLog?.completed) {
       weight = lastLog.weight;
       reps = lastLog.reps + (autoIncrement ? 1 : 0);
     } else if (autoIncrement && currentWeek > 1) {
@@ -258,7 +268,7 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
       const shouldReusePrevious =
         previous &&
         exercise.id === id &&
-        !lastLog &&
+        !lastLog?.completed &&
         previous.weight !== recommendedWeight;
 
       return shouldReusePrevious ? previous : getDefaultForSet(exercise, i);
@@ -945,19 +955,35 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExpor
 
 export default function App() {
   const [exercises, setExercises] = useState<Exercise[]>(() => {
-    try { const s = localStorage.getItem('workout_exercises'); return s ? JSON.parse(s) : INITIAL_EXERCISES; } catch { return INITIAL_EXERCISES; }
+    return parseStoredValue(
+      localStorage.getItem('workout_exercises'),
+      normalizeExercisesForStorage,
+      INITIAL_EXERCISES
+    );
   });
   const [prs, setPrs] = useState<PR[]>(() => {
-    try { const s = localStorage.getItem('workout_prs'); return s ? JSON.parse(s) : INITIAL_PRS; } catch { return INITIAL_PRS; }
+    return parseStoredValue(
+      localStorage.getItem('workout_prs'),
+      normalizePrsForStorage,
+      INITIAL_PRS
+    );
   });
   const [plans, setPlans] = useState<TrainingPlan[]>(() => {
-    try { const s = localStorage.getItem('workout_plans'); return s ? JSON.parse(s) : []; } catch { return []; }
+    return parseStoredValue(
+      localStorage.getItem('workout_plans'),
+      normalizePlansForStorage,
+      []
+    );
   });
   const [activePlanId, setActivePlanId] = useState<string | null>(() => {
-    try { return localStorage.getItem('workout_activePlanId') || null; } catch { return null; }
+    return parseStoredString(localStorage.getItem('workout_activePlanId'), null);
   });
   const [settings, setSettings] = useState<Settings>(() => {
-    try { const s = localStorage.getItem('workout_settings'); return s ? JSON.parse(s) : { unit: 'lbs', hapticFeedback: true, matchWeight: false }; } catch { return { unit: 'lbs', hapticFeedback: true, matchWeight: false }; }
+    return parseStoredValue(
+      localStorage.getItem('workout_settings'),
+      normalizeSettings,
+      DEFAULT_SETTINGS
+    );
   });
 
   useEffect(() => { localStorage.setItem('workout_exercises', JSON.stringify(exercises)); }, [exercises]);
@@ -978,8 +1004,8 @@ export default function App() {
     setExercises(prev => prev.map(ex => ({
       ...ex,
       recommended: ex.recommended ? { ...ex.recommended, weight: convert(ex.recommended.weight) } : undefined,
-      logs: ex.logs.map(log => ({ ...log, weight: convert(log.weight) })),
-      lastLogs: ex.lastLogs?.map(log => ({ ...log, weight: convert(log.weight) }))
+      logs: ex.logs.map(log => log ? { ...log, weight: convert(log.weight) } : undefined),
+      lastLogs: ex.lastLogs?.map(log => log ? { ...log, weight: convert(log.weight) } : undefined)
     })));
 
     setPrs(prev => prev.map(pr => ({
@@ -1003,7 +1029,7 @@ export default function App() {
       if (ex.id !== exId) return ex;
       const newLogs = [...ex.logs];
       if (newLogs[setIndex]) {
-        newLogs[setIndex] = { ...newLogs[setIndex], completed: false };
+        newLogs[setIndex] = undefined;
       }
       return { ...ex, logs: newLogs };
     }));
@@ -1114,7 +1140,9 @@ export default function App() {
       const wasInToday = currentTodayExerciseNames.includes(ex.name);
       return { 
         ...ex, 
-        lastLogs: (wasInToday && ex.logs.length > 0) ? ex.logs : ex.lastLogs,
+        lastLogs: (wasInToday && ex.logs.length > 0)
+          ? ex.logs.map(log => log?.completed ? { ...log } : undefined)
+          : ex.lastLogs,
         logs: [] 
       };
     }));
@@ -1144,15 +1172,17 @@ export default function App() {
   };
 
   const handleImportData = (data: Record<string, unknown>) => {
-    if (!data.exercises || !data.plans || !data.settings) {
-      alert('INVALID BACKUP FILE: missing required fields');
+    const result = validateImportedBackup(data);
+    if (!result.ok) {
+      alert('error' in result ? result.error : 'INVALID BACKUP FILE');
       return;
     }
-    setExercises(data.exercises as Exercise[]);
-    setPrs((data.prs as PR[]) || []);
-    setPlans(data.plans as TrainingPlan[]);
-    setActivePlanId((data.activePlanId as string) || null);
-    setSettings(data.settings as Settings);
+
+    setExercises(result.value.exercises);
+    setPrs(result.value.prs);
+    setPlans(result.value.plans);
+    setActivePlanId(result.value.activePlanId);
+    setSettings(result.value.settings);
   };
 
   const handleWipeData = () => {
@@ -1160,7 +1190,7 @@ export default function App() {
     setPrs(INITIAL_PRS);
     setPlans([]);
     setActivePlanId(null);
-    setSettings({ unit: 'lbs', hapticFeedback: true, matchWeight: false });
+    setSettings(DEFAULT_SETTINGS);
   };
 
   const activePlan = plans.find(p => p.id === activePlanId);

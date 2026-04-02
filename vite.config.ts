@@ -1,8 +1,57 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import {defineConfig, loadEnv, type Plugin} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+
+function normalizeBasePath(base: string): string {
+  return base.endsWith('/') ? base : `${base}/`;
+}
+
+function toBaseScopedUrl(base: string, value: string): string {
+  if (/^[a-z]+:/i.test(value)) {
+    return value;
+  }
+
+  const normalizedBase = normalizeBasePath(base);
+  const normalizedValue = value.replace(/^\/+/, '');
+
+  return normalizedBase === '/' ? `/${normalizedValue}` : `${normalizedBase}${normalizedValue}`;
+}
+
+function syncPwaManifestBase(): Plugin {
+  let base = '/';
+
+  return {
+    name: 'sync-pwa-manifest-base',
+    apply: 'build',
+    enforce: 'post',
+    configResolved(config) {
+      base = normalizeBasePath(config.base);
+    },
+    generateBundle(_, bundle) {
+      const manifestAsset = bundle['manifest.webmanifest'];
+      if (!manifestAsset || manifestAsset.type !== 'asset' || typeof manifestAsset.source !== 'string') {
+        return;
+      }
+
+      const manifest = JSON.parse(manifestAsset.source) as {
+        start_url?: string;
+        scope?: string;
+        icons?: Array<{src: string}>;
+      };
+
+      manifest.start_url = base;
+      manifest.scope = base;
+      manifest.icons = manifest.icons?.map((icon) => ({
+        ...icon,
+        src: toBaseScopedUrl(base, icon.src),
+      }));
+
+      manifestAsset.source = JSON.stringify(manifest);
+    },
+  };
+}
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
@@ -21,21 +70,19 @@ export default defineConfig(({mode}) => {
           background_color: '#000000',
           display: 'standalone',
           orientation: 'portrait',
-          start_url: '/',
-          scope: '/',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: 'pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: 'pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any maskable',
@@ -47,6 +94,7 @@ export default defineConfig(({mode}) => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         },
       }),
+      syncPwaManifestBase(),
     ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
