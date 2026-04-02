@@ -1,4 +1,4 @@
-import { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types';
+import type { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types.ts';
 
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'lbs',
@@ -375,6 +375,16 @@ export const validateImportedBackup = (
       settings,
     },
   };
+};
+
+export const parseImportedBackupFile = (
+  raw: string
+): ImportValidationResult => {
+  try {
+    return validateImportedBackup(JSON.parse(raw));
+  } catch {
+    return { ok: false, error: 'INVALID BACKUP FILE' };
+  }
 };
 
 export const normalizeExercisesForStorage = (value: unknown): Exercise[] | null =>

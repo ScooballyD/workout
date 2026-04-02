@@ -24,6 +24,7 @@ import {
 import { cn } from './lib/utils';
 import {
   DEFAULT_SETTINGS,
+  parseImportedBackupFile,
   normalizeExercisesForStorage,
   normalizePlansForStorage,
   normalizePrsForStorage,
@@ -840,12 +841,13 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExpor
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-      try {
-        const data = JSON.parse(evt.target?.result as string);
-        onImportData(data);
-      } catch {
-        alert('INVALID BACKUP FILE');
+      const result = parseImportedBackupFile((evt.target?.result as string) ?? '');
+      if (result.ok) {
+        onImportData(result.value);
+        return;
       }
+
+      alert('error' in result ? result.error : 'INVALID BACKUP FILE');
     };
     reader.readAsText(file);
     e.target.value = '';

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test --test-isolation=none --experimental-strip-types src/**/*.test.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rimraf dist",
