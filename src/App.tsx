@@ -21,10 +21,11 @@ import {
   ChevronRight,
   Lock
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { cn } from './lib/utils';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
+
+const PRVaultPage = React.lazy(() => import('./pages/PRVault'));
 
 // --- Components ---
 
@@ -241,13 +242,28 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
     () => exercise ? Array.from({ length: exercise.sets }, (_, i) => getDefaultForSet(exercise, i)) : []
   );
 
-  // Keep inputValues in sync when sets are added or removed
+  // Keep inputValues in sync when the selected exercise or its defaults change.
   useEffect(() => {
     if (!exercise) return;
-    setInputValues((prev: { weight: number; reps: number }[]) => Array.from({ length: exercise.sets }, (_, i) =>
-      prev[i] ?? getDefaultForSet(exercise, i)
-    ));
-  }, [exercise?.sets]); // eslint-disable-line react-hooks/exhaustive-deps
+    setInputValues((prev: { weight: number; reps: number }[]) => Array.from({ length: exercise.sets }, (_, i) => {
+      const log = exercise.logs[i];
+      if (log?.completed) {
+        return { weight: log.weight, reps: log.reps };
+      }
+
+      const previous = prev[i];
+      const lastLog = exercise.lastLogs?.[i];
+      const recommendedWeight = exercise.recommended?.weight || 0;
+
+      const shouldReusePrevious =
+        previous &&
+        exercise.id === id &&
+        !lastLog &&
+        previous.weight !== recommendedWeight;
+
+      return shouldReusePrevious ? previous : getDefaultForSet(exercise, i);
+    }));
+  }, [exercise, id, autoIncrement, currentWeek]);
 
   if (!exercise) return <div>Exercise not found</div>;
 
@@ -367,70 +383,6 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
             <Trash2 size={20} />
           </button>
         </div>
-      </main>
-    </motion.div>
-  );
-};
-
-const PRVault = ({ prs, settings }: { prs: PR[], settings: Settings }) => {
-  const [filter, setFilter] = useState('ALL');
-  const filteredPrs = filter === 'ALL' ? prs : prs.filter(p => p.exerciseName.includes(filter));
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }} 
-      animate={{ opacity: 1 }} 
-      exit={{ opacity: 0 }}
-      className="flex-1 flex flex-col"
-    >
-      <Header title="PR VAULT" />
-      
-      <div className="px-4 py-6 overflow-x-auto whitespace-nowrap flex gap-4 border-b-2 border-muted">
-        {['ALL', 'SQUAT', 'BENCH', 'DEADLIFT'].map(f => (
-          <button 
-            key={f}
-            onClick={() => setFilter(f)}
-            className={cn(
-              "px-6 py-2 font-display text-xl rounded-sm border-2 transition-none",
-              filter === f ? "bg-primary text-black border-primary shadow-brutal" : "bg-surface text-text-main border-muted hover:border-primary"
-            )}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-
-      <main className="p-4 grid grid-cols-2 gap-4 auto-rows-max pb-32">
-        {filteredPrs.length === 0 ? (
-          <div className="col-span-2 flex flex-col items-center justify-center p-12 text-center border-2 border-dashed border-muted rounded-sm">
-            <Trophy size={48} className="text-muted mb-4" />
-            <p className="text-muted font-bold tracking-widest uppercase">NO DATA AVAILABLE</p>
-            <p className="text-xs text-muted mt-2">LOG SETS TO TRACK YOUR PROGRESS</p>
-          </div>
-        ) : (
-          filteredPrs.map((pr) => (
-            <div key={pr.exerciseId} className="relative bg-surface rounded-sm brutal-border p-4 flex flex-col justify-between min-h-[160px] overflow-hidden group hover:border-secondary transition-none">
-              <div className="absolute inset-0 opacity-20 pointer-events-none">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={pr.history}>
-                    <Line type="monotone" dataKey="weight" stroke="#00FFFF" strokeWidth={4} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="relative z-10 flex justify-between items-start mb-4">
-                <span className="text-xs text-muted font-bold tracking-widest">{pr.exerciseName}</span>
-                {pr.date === new Date().toISOString().split('T')[0] && (
-                  <span className="bg-secondary text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm">NEW PR</span>
-                )}
-              </div>
-              <div className="relative z-10 mt-auto">
-                <div className="text-4xl font-display font-bold text-text-main leading-none tracking-tighter">{pr.weight}</div>
-                <div className="text-sm text-secondary font-bold mt-1">{settings.unit.toUpperCase()}</div>
-                <div className="text-[10px] text-muted mt-2 font-mono">{pr.date}</div>
-              </div>
-            </div>
-          ))
-        )}
       </main>
     </motion.div>
   );
@@ -1062,7 +1014,19 @@ export default function App() {
   };
 
   const handleRemoveSet = (exId: string) => {
-    setExercises(prev => prev.map(ex => ex.id === exId && ex.sets > 1 ? { ...ex, sets: ex.sets - 1 } : ex));
+    setExercises(prev => prev.map(ex => {
+      if (ex.id !== exId || ex.sets <= 1) {
+        return ex;
+      }
+
+      const nextSets = ex.sets - 1;
+      return {
+        ...ex,
+        sets: nextSets,
+        logs: ex.logs.slice(0, nextSets),
+        lastLogs: ex.lastLogs?.slice(0, nextSets),
+      };
+    }));
   };
 
   const handleSavePlan = (newPlan: TrainingPlan) => {
@@ -1283,7 +1247,11 @@ export default function App() {
             />
           } />
           <Route path="/create-plan" element={<CreatePlan onSave={handleSavePlan} existingExercises={Array.from(new Set(exercises.map(e => e.name)))} />} />
-          <Route path="/prs" element={<PRVault prs={prs} settings={settings} />} />
+          <Route path="/prs" element={
+            <React.Suspense fallback={<div className="flex-1 bg-black" />}>
+              <PRVaultPage prs={prs} settings={settings} />
+            </React.Suspense>
+          } />
           <Route path="/settings" element={<SettingsPage settings={settings} setSettings={setSettings} onToggleUnit={handleToggleUnit} onWipeData={handleWipeData} onExportData={handleExportData} onImportData={handleImportData} />} />
         </Routes>
         <BottomNav />

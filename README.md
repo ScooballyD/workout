@@ -2,11 +2,10 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# Run and deploy the workout app
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/e29d8493-45a0-4e55-b5a1-b239e6b5414e
+This app is built as a static Vite site. The production build is the contents of `dist/`, which can be deployed to any static host.
+It is also configured as a Progressive Web App, so supported mobile browsers can install it to the home screen and cache the app shell for offline use.
 
 ## Run Locally
 
@@ -15,6 +14,9 @@ View your app in AI Studio: https://ai.studio/apps/e29d8493-45a0-4e55-b5a1-b239e
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Run the app:
    `npm run dev`
+3. Build the static site:
+   `npm run build`
+4. Preview the production build locally:
+   `npm run preview`
