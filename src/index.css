@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Space+Mono:wght@400;700&family=Anton&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -16,8 +17,6 @@
   --shadow-brutal: 4px 4px 0px #c8f906;
   --shadow-brutal-danger: 4px 4px 0px #FF0033;
 }
-
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Space+Mono:wght@400;700&family=Anton&display=swap');
 
 @layer base {
   body {

@@ -21,10 +21,21 @@ import {
   ChevronRight,
   Lock
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { cn } from './lib/utils';
+import {
+  DEFAULT_SETTINGS,
+  normalizeExercisesForStorage,
+  normalizePlansForStorage,
+  normalizePrsForStorage,
+  normalizeSettings,
+  parseStoredString,
+  parseStoredValue,
+  validateImportedBackup,
+} from './lib/backup';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
+
+const PRVaultPage = React.lazy(() => import('./pages/PRVault'));
 
 // --- Components ---
 
@@ -102,7 +113,7 @@ const DailyGrind = ({
     let defaultReps = exercise.recommended?.reps || 0;
 
     const lastLog = exercise.lastLogs?.[actualSetIndex];
-    if (lastLog) {
+    if (lastLog?.completed) {
       defaultWeight = lastLog.weight;
       defaultReps = lastLog.reps + (autoIncrement ? 1 : 0);
     } else if (autoIncrement && currentWeek > 1) {
@@ -208,8 +219,8 @@ const DailyGrind = ({
   );
 };
 
-const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, onAddSet, onRemoveSet }: { 
-  exercises: Exercise[], 
+const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, onAddSet, onRemoveSet }: {
+  exercises: Exercise[],
   activePlan?: TrainingPlan,
   settings: Settings,
   onLogSet: (id: string, setIndex: number, weight: number, reps: number) => void,
@@ -221,15 +232,70 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
   const navigate = useNavigate();
   const exercise = exercises.find(e => e.id === id);
 
-  if (!exercise) return <div>Exercise not found</div>;
-
   const autoIncrement = activePlan?.advanced?.autoIncrement || false;
   const currentWeek = activePlan?.currentWeek || 1;
 
+  const getDefaultForSet = (ex: Exercise, i: number) => {
+    let weight = ex.recommended?.weight || 0;
+    let reps = ex.recommended?.reps || 0;
+    const lastLog = ex.lastLogs?.[i];
+    if (lastLog?.completed) {
+      weight = lastLog.weight;
+      reps = lastLog.reps + (autoIncrement ? 1 : 0);
+    } else if (autoIncrement && currentWeek > 1) {
+      reps += (currentWeek - 1);
+    }
+    return { weight, reps };
+  };
+
+  const [inputValues, setInputValues] = useState<{ weight: number; reps: number }[]>(
+    () => exercise ? Array.from({ length: exercise.sets }, (_, i) => getDefaultForSet(exercise, i)) : []
+  );
+
+  // Keep inputValues in sync when the selected exercise or its defaults change.
+  useEffect(() => {
+    if (!exercise) return;
+    setInputValues((prev: { weight: number; reps: number }[]) => Array.from({ length: exercise.sets }, (_, i) => {
+      const log = exercise.logs[i];
+      if (log?.completed) {
+        return { weight: log.weight, reps: log.reps };
+      }
+
+      const previous = prev[i];
+      const lastLog = exercise.lastLogs?.[i];
+      const recommendedWeight = exercise.recommended?.weight || 0;
+
+      const shouldReusePrevious =
+        previous &&
+        exercise.id === id &&
+        !lastLog?.completed &&
+        previous.weight !== recommendedWeight;
+
+      return shouldReusePrevious ? previous : getDefaultForSet(exercise, i);
+    }));
+  }, [exercise, id, autoIncrement, currentWeek]);
+
+  if (!exercise) return <div>Exercise not found</div>;
+
+  const handleWeightChange = (i: number, value: number) => {
+    setInputValues((prev: { weight: number; reps: number }[]) => {
+      const next = [...prev];
+      next[i] = { ...next[i], weight: value };
+      if (settings.matchWeight) {
+        for (let j = i + 1; j < exercise.sets; j++) {
+          if (!exercise.logs[j]?.completed) {
+            next[j] = { ...next[j], weight: value };
+          }
+        }
+      }
+      return next;
+    });
+  };
+
   return (
-    <motion.div 
-      initial={{ x: '100%' }} 
-      animate={{ x: 0 }} 
+    <motion.div
+      initial={{ x: '100%' }}
+      animate={{ x: 0 }}
       exit={{ x: '100%' }}
       className="fixed inset-0 z-50 bg-black flex flex-col overflow-y-auto"
     >
@@ -261,37 +327,12 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
           const log = exercise.logs[i];
           const isNext = i === exercise.logs.length;
           const isCompleted = log?.completed || false;
-
-          let defaultWeight = exercise.recommended?.weight || 0;
-          let defaultReps = exercise.recommended?.reps || 0;
-
-          const lastLog = exercise.lastLogs?.[i];
-          if (lastLog) {
-            defaultWeight = lastLog.weight;
-            defaultReps = lastLog.reps + (autoIncrement ? 1 : 0);
-          } else if (autoIncrement && currentWeek > 1) {
-            defaultReps += (currentWeek - 1);
-          }
-
-          if (settings.matchWeight && !log) {
-            let lastCompletedWeight = null;
-            for (let j = i - 1; j >= 0; j--) {
-              if (exercise.logs[j]?.completed) {
-                lastCompletedWeight = exercise.logs[j].weight;
-                break;
-              }
-            }
-            if (lastCompletedWeight !== null) {
-              defaultWeight = lastCompletedWeight;
-            }
-          }
-
-          const displayWeight = log ? log.weight : defaultWeight;
-          const displayReps = log ? log.reps : defaultReps;
+          const currentWeight = isCompleted ? log.weight : (inputValues[i]?.weight ?? 0);
+          const currentReps = isCompleted ? log.reps : (inputValues[i]?.reps ?? 0);
 
           return (
-            <div 
-              key={i} 
+            <div
+              key={i}
               className={cn(
                 "flex items-center gap-3 bg-surface p-3 rounded border-2 transition-all duration-150",
                 isCompleted ? "border-primary bg-primary/10" : "border-muted",
@@ -301,39 +342,30 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
               <div className={cn("w-8 font-bold text-xl text-center", isCompleted ? "text-primary" : "text-white")}>
                 {String(i + 1).padStart(2, '0')}
               </div>
-              <input 
+              <input
                 className={cn("brutal-input flex-1", isCompleted && "text-primary border-primary")}
-                type="number" 
-                defaultValue={displayWeight}
+                type="number"
+                value={currentWeight}
                 disabled={isCompleted}
-                id={`weight-${i}`}
-                onChange={(e) => {
-                  if (settings.matchWeight) {
-                    const newWeight = e.target.value;
-                    for (let j = i + 1; j < exercise.sets; j++) {
-                      const nextInput = document.getElementById(`weight-${j}`) as HTMLInputElement;
-                      if (nextInput && !exercise.logs[j]?.completed) {
-                        nextInput.value = newWeight;
-                      }
-                    }
-                  }
-                }}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleWeightChange(i, Number(e.target.value))}
               />
-              <input 
+              <input
                 className={cn("brutal-input flex-1", isCompleted && "text-primary border-primary")}
-                type="number" 
-                defaultValue={displayReps}
+                type="number"
+                value={currentReps}
                 disabled={isCompleted}
-                id={`reps-${i}`}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputValues((prev: { weight: number; reps: number }[]) => {
+                  const next = [...prev];
+                  next[i] = { ...next[i], reps: Number(e.target.value) };
+                  return next;
+                })}
               />
-              <button 
+              <button
                 onClick={() => {
                   if (isCompleted) {
                     onUnlogSet(exercise.id, i);
                   } else {
-                    const w = Number((document.getElementById(`weight-${i}`) as HTMLInputElement).value);
-                    const r = Number((document.getElementById(`reps-${i}`) as HTMLInputElement).value);
-                    onLogSet(exercise.id, i, w, r);
+                    onLogSet(exercise.id, i, inputValues[i]?.weight ?? 0, inputValues[i]?.reps ?? 0);
                   }
                 }}
                 className={cn(
@@ -348,81 +380,19 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
         })}
 
         <div className="flex gap-2">
-          <button 
+          <button
             onClick={() => onAddSet(exercise.id)}
             className="flex-1 h-14 border-2 border-dashed border-muted text-muted font-bold rounded flex items-center justify-center gap-2 hover:border-primary hover:text-primary transition-colors"
           >
             <Plus size={20} /> ADD WORKING SET
           </button>
-          <button 
+          <button
             onClick={() => onRemoveSet(exercise.id)}
             className="w-14 h-14 border-2 border-muted text-danger font-bold rounded flex items-center justify-center hover:border-danger transition-colors"
           >
             <Trash2 size={20} />
           </button>
         </div>
-      </main>
-    </motion.div>
-  );
-};
-
-const PRVault = ({ prs, settings }: { prs: PR[], settings: Settings }) => {
-  const [filter, setFilter] = useState('ALL');
-  const filteredPrs = filter === 'ALL' ? prs : prs.filter(p => p.exerciseName.includes(filter));
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }} 
-      animate={{ opacity: 1 }} 
-      exit={{ opacity: 0 }}
-      className="flex-1 flex flex-col"
-    >
-      <Header title="PR VAULT" />
-      
-      <div className="px-4 py-6 overflow-x-auto whitespace-nowrap flex gap-4 border-b-2 border-muted">
-        {['ALL', 'SQUAT', 'BENCH', 'DEADLIFT'].map(f => (
-          <button 
-            key={f}
-            onClick={() => setFilter(f)}
-            className={cn(
-              "px-6 py-2 font-display text-xl rounded-sm border-2 transition-none",
-              filter === f ? "bg-primary text-black border-primary shadow-brutal" : "bg-surface text-text-main border-muted hover:border-primary"
-            )}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-
-      <main className="p-4 grid grid-cols-2 gap-4 auto-rows-max pb-32">
-        {filteredPrs.length === 0 ? (
-          <div className="col-span-2 flex flex-col items-center justify-center p-12 text-center border-2 border-dashed border-muted rounded-sm">
-            <Trophy size={48} className="text-muted mb-4" />
-            <p className="text-muted font-bold tracking-widest uppercase">NO DATA AVAILABLE</p>
-            <p className="text-xs text-muted mt-2">LOG SETS TO TRACK YOUR PROGRESS</p>
-          </div>
-        ) : (
-          filteredPrs.map((pr) => (
-            <div key={pr.exerciseId} className="relative bg-surface rounded-sm brutal-border p-4 flex flex-col justify-between min-h-[160px] overflow-hidden group hover:border-secondary transition-none">
-              <div className="absolute inset-0 opacity-20 pointer-events-none">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={pr.history}>
-                    <Line type="monotone" dataKey="weight" stroke="#00FFFF" strokeWidth={4} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="relative z-10 flex justify-between items-start mb-4">
-                <span className="text-xs text-muted font-bold tracking-widest">{pr.exerciseName}</span>
-                <span className="bg-secondary text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm">NEW PR</span>
-              </div>
-              <div className="relative z-10 mt-auto">
-                <div className="text-4xl font-display font-bold text-text-main leading-none tracking-tighter">{pr.weight}</div>
-                <div className="text-sm text-secondary font-bold mt-1">{settings.unit.toUpperCase()}</div>
-                <div className="text-[10px] text-muted mt-2 font-mono">{pr.date}</div>
-              </div>
-            </div>
-          ))
-        )}
       </main>
     </motion.div>
   );
@@ -577,7 +547,6 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
     "SUN": { type: 'rest', exercises: [], description: 'REST DAY' },
   });
   const [autoIncrement, setAutoIncrement] = useState(false);
-  const [rpeTracking, setRpeTracking] = useState(true);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [workoutInput, setWorkoutInput] = useState('');
 
@@ -601,15 +570,14 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
   const handleSave = () => {
     if (!name) return alert("PLEASE ENTER A PLAN NAME");
     const newPlan: TrainingPlan = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: Math.random().toString(36).substring(2, 11),
       name: name.toUpperCase(),
       durationWeeks: duration,
       currentWeek: 1,
       currentDay: 1,
       schedule,
       advanced: {
-        autoIncrement,
-        rpeTracking
+        autoIncrement
       }
     };
     onSave(newPlan);
@@ -832,15 +800,6 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
                 <div className={cn("absolute top-1 bottom-1 w-3 bg-white transition-all", autoIncrement ? "right-1" : "left-1")} />
               </button>
             </div>
-            <div className="flex items-center justify-between border-b border-muted pb-2">
-              <span className="text-sm font-bold uppercase">RPE TRACKING</span>
-              <button 
-                onClick={() => setRpeTracking(!rpeTracking)}
-                className={cn("w-10 h-5 relative transition-colors", rpeTracking ? "bg-primary" : "bg-muted")}
-              >
-                <div className={cn("absolute top-1 bottom-1 w-3 bg-white transition-all", rpeTracking ? "right-1" : "left-1")} />
-              </button>
-            </div>
           </div>
           <div className="bg-black/40 p-4 border-l-4 border-primary">
             <p className="text-[10px] leading-tight text-muted uppercase">PLAN SUMMARY</p>
@@ -872,8 +831,25 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
   );
 };
 
-const SettingsPage = ({ settings, setSettings, onToggleUnit }: { settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>>, onToggleUnit: () => void }) => {
+const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExportData, onImportData }: { settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>>, onToggleUnit: () => void, onWipeData: () => void, onExportData: () => void, onImportData: (data: object) => void }) => {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = JSON.parse(evt.target?.result as string);
+        onImportData(data);
+      } catch {
+        alert('INVALID BACKUP FILE');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   return (
     <motion.div 
@@ -919,13 +895,14 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit }: { settings: Setti
 
         <h2 className="text-sm text-muted uppercase tracking-widest px-4 mb-2 mt-12 font-mono">DATA</h2>
         
-        <button className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none">
+        <button onClick={onExportData} className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none">
           <span className="text-xl font-bold uppercase tracking-wider group-hover:text-secondary">EXPORT RAW DATA</span>
           <Download size={24} className="text-secondary" />
         </button>
 
-        <button className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none">
-          <span className="text-xl font-bold uppercase tracking-wider group-hover:text-primary">FORCE SYNC</span>
+        <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleFileChange} />
+        <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none">
+          <span className="text-xl font-bold uppercase tracking-wider group-hover:text-primary">IMPORT BACKUP</span>
           <RefreshCw size={24} className="text-primary" />
         </button>
 
@@ -953,8 +930,8 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit }: { settings: Setti
               <h3 className="font-display text-4xl text-danger mb-4">CRITICAL ALERT</h3>
               <p className="font-mono text-sm mb-8">ARE YOU ABSOLUTELY SURE? ALL WORKOUT LOGS, PRS, AND PLANS WILL BE PERMANENTLY DELETED.</p>
               <div className="flex flex-col gap-4">
-                <button 
-                  onClick={() => setShowWipeConfirm(false)}
+                <button
+                  onClick={() => { onWipeData(); setShowWipeConfirm(false); }}
                   className="brutal-btn bg-danger border-black text-black shadow-none"
                 >
                   CONFIRM WIPE
@@ -977,15 +954,43 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit }: { settings: Setti
 // --- Main App ---
 
 export default function App() {
-  const [exercises, setExercises] = useState<Exercise[]>(INITIAL_EXERCISES);
-  const [prs, setPrs] = useState<PR[]>(INITIAL_PRS);
-  const [plans, setPlans] = useState<TrainingPlan[]>([]);
-  const [activePlanId, setActivePlanId] = useState<string | null>(null);
-  const [settings, setSettings] = useState<Settings>({
-    unit: 'lbs',
-    hapticFeedback: true,
-    matchWeight: false
+  const [exercises, setExercises] = useState<Exercise[]>(() => {
+    return parseStoredValue(
+      localStorage.getItem('workout_exercises'),
+      normalizeExercisesForStorage,
+      INITIAL_EXERCISES
+    );
   });
+  const [prs, setPrs] = useState<PR[]>(() => {
+    return parseStoredValue(
+      localStorage.getItem('workout_prs'),
+      normalizePrsForStorage,
+      INITIAL_PRS
+    );
+  });
+  const [plans, setPlans] = useState<TrainingPlan[]>(() => {
+    return parseStoredValue(
+      localStorage.getItem('workout_plans'),
+      normalizePlansForStorage,
+      []
+    );
+  });
+  const [activePlanId, setActivePlanId] = useState<string | null>(() => {
+    return parseStoredString(localStorage.getItem('workout_activePlanId'), null);
+  });
+  const [settings, setSettings] = useState<Settings>(() => {
+    return parseStoredValue(
+      localStorage.getItem('workout_settings'),
+      normalizeSettings,
+      DEFAULT_SETTINGS
+    );
+  });
+
+  useEffect(() => { localStorage.setItem('workout_exercises', JSON.stringify(exercises)); }, [exercises]);
+  useEffect(() => { localStorage.setItem('workout_prs', JSON.stringify(prs)); }, [prs]);
+  useEffect(() => { localStorage.setItem('workout_plans', JSON.stringify(plans)); }, [plans]);
+  useEffect(() => { if (activePlanId) localStorage.setItem('workout_activePlanId', activePlanId); else localStorage.removeItem('workout_activePlanId'); }, [activePlanId]);
+  useEffect(() => { localStorage.setItem('workout_settings', JSON.stringify(settings)); }, [settings]);
 
   const handleToggleUnit = () => {
     const newUnit = settings.unit === 'lbs' ? 'kg' : 'lbs';
@@ -999,8 +1004,8 @@ export default function App() {
     setExercises(prev => prev.map(ex => ({
       ...ex,
       recommended: ex.recommended ? { ...ex.recommended, weight: convert(ex.recommended.weight) } : undefined,
-      logs: ex.logs.map(log => ({ ...log, weight: convert(log.weight) })),
-      lastLogs: ex.lastLogs?.map(log => ({ ...log, weight: convert(log.weight) }))
+      logs: ex.logs.map(log => log ? { ...log, weight: convert(log.weight) } : undefined),
+      lastLogs: ex.lastLogs?.map(log => log ? { ...log, weight: convert(log.weight) } : undefined)
     })));
 
     setPrs(prev => prev.map(pr => ({
@@ -1024,7 +1029,7 @@ export default function App() {
       if (ex.id !== exId) return ex;
       const newLogs = [...ex.logs];
       if (newLogs[setIndex]) {
-        newLogs[setIndex] = { ...newLogs[setIndex], completed: false };
+        newLogs[setIndex] = undefined;
       }
       return { ...ex, logs: newLogs };
     }));
@@ -1035,7 +1040,19 @@ export default function App() {
   };
 
   const handleRemoveSet = (exId: string) => {
-    setExercises(prev => prev.map(ex => ex.id === exId && ex.sets > 1 ? { ...ex, sets: ex.sets - 1 } : ex));
+    setExercises(prev => prev.map(ex => {
+      if (ex.id !== exId || ex.sets <= 1) {
+        return ex;
+      }
+
+      const nextSets = ex.sets - 1;
+      return {
+        ...ex,
+        sets: nextSets,
+        logs: ex.logs.slice(0, nextSets),
+        lastLogs: ex.lastLogs?.slice(0, nextSets),
+      };
+    }));
   };
 
   const handleSavePlan = (newPlan: TrainingPlan) => {
@@ -1058,7 +1075,7 @@ export default function App() {
       newExerciseNames.forEach(name => {
         if (!existingNames.has(name)) {
           toAdd.push({
-            id: Math.random().toString(36).substr(2, 9),
+            id: Math.random().toString(36).substring(2, 11),
             name: name,
             sets: 3,
             reps: "8-15",
@@ -1123,7 +1140,9 @@ export default function App() {
       const wasInToday = currentTodayExerciseNames.includes(ex.name);
       return { 
         ...ex, 
-        lastLogs: (wasInToday && ex.logs.length > 0) ? ex.logs : ex.lastLogs,
+        lastLogs: (wasInToday && ex.logs.length > 0)
+          ? ex.logs.map(log => log?.completed ? { ...log } : undefined)
+          : ex.lastLogs,
         logs: [] 
       };
     }));
@@ -1139,6 +1158,39 @@ export default function App() {
     }));
     // Scroll to top
     window.scrollTo(0, 0);
+  };
+
+  const handleExportData = () => {
+    const data = { version: 1, exportedAt: new Date().toISOString(), exercises, prs, plans, activePlanId, settings };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workout-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportData = (data: Record<string, unknown>) => {
+    const result = validateImportedBackup(data);
+    if (!result.ok) {
+      alert('error' in result ? result.error : 'INVALID BACKUP FILE');
+      return;
+    }
+
+    setExercises(result.value.exercises);
+    setPrs(result.value.prs);
+    setPlans(result.value.plans);
+    setActivePlanId(result.value.activePlanId);
+    setSettings(result.value.settings);
+  };
+
+  const handleWipeData = () => {
+    setExercises(INITIAL_EXERCISES);
+    setPrs(INITIAL_PRS);
+    setPlans([]);
+    setActivePlanId(null);
+    setSettings(DEFAULT_SETTINGS);
   };
 
   const activePlan = plans.find(p => p.id === activePlanId);
@@ -1225,8 +1277,12 @@ export default function App() {
             />
           } />
           <Route path="/create-plan" element={<CreatePlan onSave={handleSavePlan} existingExercises={Array.from(new Set(exercises.map(e => e.name)))} />} />
-          <Route path="/prs" element={<PRVault prs={prs} settings={settings} />} />
-          <Route path="/settings" element={<SettingsPage settings={settings} setSettings={setSettings} onToggleUnit={handleToggleUnit} />} />
+          <Route path="/prs" element={
+            <React.Suspense fallback={<div className="flex-1 bg-black" />}>
+              <PRVaultPage prs={prs} settings={settings} />
+            </React.Suspense>
+          } />
+          <Route path="/settings" element={<SettingsPage settings={settings} setSettings={setSettings} onToggleUnit={handleToggleUnit} onWipeData={handleWipeData} onExportData={handleExportData} onImportData={handleImportData} />} />
         </Routes>
         <BottomNav />
       </div>
