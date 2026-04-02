@@ -14,9 +14,9 @@ export default defineConfig(({mode}) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
         manifest: {
-          name: 'Workout',
-          short_name: 'Workout',
-          description: 'Track workouts, training plans, and PRs directly on your device.',
+          name: 'Megalifts',
+          short_name: 'Megalifts',
+          description: 'Megalifts helps you track workouts, training plans, and PRs directly on your device.',
           theme_color: '#000000',
           background_color: '#000000',
           display: 'standalone',
