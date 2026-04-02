@@ -1,5 +1,4 @@
-# Residual Risks
+# Tasks
 
-## Ensure tasks contain all details needed for agents to properly resolve the issue
+## RULE: Tasks should be formatted as an opimized self-contained prompt that can be given to an AI agent. The prompt task should include all relavant context, constraints, and verification guidance.
 
-- 

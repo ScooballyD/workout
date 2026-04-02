@@ -21,9 +21,11 @@ import {
   ChevronRight,
   Lock
 } from 'lucide-react';
+import { Header } from './components/Header';
 import { cn } from './lib/utils';
 import {
   DEFAULT_SETTINGS,
+  type ImportedBackupData,
   parseImportedBackupFile,
   normalizeExercisesForStorage,
   normalizePlansForStorage,
@@ -31,8 +33,17 @@ import {
   normalizeSettings,
   parseStoredString,
   parseStoredValue,
-  validateImportedBackup,
 } from './lib/backup';
+import { createId } from './lib/id';
+import { getNextIncompleteSetIndex } from './lib/exercise-progress';
+import { getNextSetInfo } from './lib/next-set-info';
+import {
+  addExerciseToPlanDay,
+  getPlanExerciseSuggestions,
+  removeExerciseFromPlanDay,
+} from './lib/plan-editor';
+import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
+import { completeWorkoutExercises } from './lib/workout-completion';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
 
@@ -71,15 +82,6 @@ const BottomNav = () => {
   );
 };
 
-const Header = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-  <header className="sticky top-0 z-40 bg-black/95 backdrop-blur-sm border-b-2 border-muted p-4 pt-8">
-    <h1 className="text-[64px] font-display font-bold leading-none tracking-tighter text-text-main m-0 p-0 uppercase">
-      {title}
-    </h1>
-    {subtitle && <p className="text-primary text-xl font-bold tracking-widest mt-2 uppercase">{subtitle}</p>}
-  </header>
-);
-
 // --- Pages ---
 
 const DailyGrind = ({ 
@@ -101,32 +103,13 @@ const DailyGrind = ({
   const autoIncrement = activePlan?.advanced?.autoIncrement || false;
   const currentWeek = activePlan?.currentWeek || 1;
 
-  const getNextSetInfo = (exercise: Exercise) => {
-    let actualSetIndex = 0;
-    for (let i = 0; i < exercise.sets; i++) {
-      if (!exercise.logs[i]?.completed) {
-        actualSetIndex = i;
-        break;
-      }
-    }
-
-    let defaultWeight = exercise.recommended?.weight || 0;
-    let defaultReps = exercise.recommended?.reps || 0;
-
-    const lastLog = exercise.lastLogs?.[actualSetIndex];
-    if (lastLog?.completed) {
-      defaultWeight = lastLog.weight;
-      defaultReps = lastLog.reps + (autoIncrement ? 1 : 0);
-    } else if (autoIncrement && currentWeek > 1) {
-      defaultReps += (currentWeek - 1);
-    }
-
-    return { actualSetIndex, defaultWeight, defaultReps };
-  };
-
   const handleLogNextSet = () => {
     if (!activeExercise) return;
-    const { actualSetIndex, defaultWeight, defaultReps } = getNextSetInfo(activeExercise);
+    const { actualSetIndex, defaultWeight, defaultReps } = getNextSetInfo(activeExercise, {
+      autoIncrement,
+      currentWeek,
+    });
+    if (actualSetIndex === null) return;
     onLogSet(activeExercise.id, actualSetIndex, defaultWeight, defaultReps);
   };
 
@@ -148,7 +131,7 @@ const DailyGrind = ({
         {exercises.map((ex, idx) => {
           const completed = isCompleted(ex);
           const isActive = idx === activeIndex;
-          const nextSetInfo = getNextSetInfo(ex);
+          const nextSetInfo = getNextSetInfo(ex, { autoIncrement, currentWeek });
           const displayReps = completed ? ex.reps : nextSetInfo.defaultReps || ex.reps;
           
           return (
@@ -277,6 +260,7 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
   }, [exercise, id, autoIncrement, currentWeek]);
 
   if (!exercise) return <div>Exercise not found</div>;
+  const nextIncompleteSetIndex = getNextIncompleteSetIndex(exercise.logs, exercise.sets);
 
   const handleWeightChange = (i: number, value: number) => {
     setInputValues((prev: { weight: number; reps: number }[]) => {
@@ -326,7 +310,7 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
 
         {Array.from({ length: exercise.sets }).map((_, i) => {
           const log = exercise.logs[i];
-          const isNext = i === exercise.logs.length;
+          const isNext = i === nextIncompleteSetIndex;
           const isCompleted = log?.completed || false;
           const currentWeight = isCompleted ? log.weight : (inputValues[i]?.weight ?? 0);
           const currentReps = isCompleted ? log.reps : (inputValues[i]?.reps ?? 0);
@@ -408,8 +392,9 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, dayCounter }: {
   const days = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
   const navigate = useNavigate();
   const activePlan = plans.find(p => p.id === activePlanId);
-  const currentWeek = activePlan ? Math.ceil(dayCounter / 7) : 0;
-  const todayName = activePlan ? days[(dayCounter - 1) % 7] : "";
+  const progress = activePlan ? getPlanProgressSnapshot(activePlan) : null;
+  const currentWeek = progress?.displayWeek ?? 0;
+  const todayName = activePlan ? days[(Math.min(dayCounter, progress?.totalDays ?? dayCounter) - 1) % 7] : "";
 
   return (
     <motion.div 
@@ -437,12 +422,12 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, dayCounter }: {
             </div>
             <div className="grid grid-cols-12 gap-1 mb-4">
               {Array.from({ length: activePlan.durationWeeks }).map((_, i) => (
-                <div key={i} className={cn("h-2", i < currentWeek ? "bg-primary" : "bg-muted")} />
+                <div key={i} className={cn("h-2", i < (progress?.completedWeeks ?? 0) ? "bg-primary" : "bg-muted")} />
               ))}
             </div>
             <div className="flex justify-between items-center font-mono text-[10px] text-muted">
-              <span>PROGRESS: {Math.round((currentWeek / activePlan.durationWeeks) * 100)}%</span>
-              <span>{Math.max(0, activePlan.durationWeeks - currentWeek)} WEEKS REMAINING</span>
+              <span>PROGRESS: {progress?.progressPercent ?? 0}%</span>
+              <span>{progress?.weeksRemaining ?? 0} WEEKS REMAINING</span>
             </div>
           </div>
         </section>
@@ -550,19 +535,17 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
   const [autoIncrement, setAutoIncrement] = useState(false);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [workoutInput, setWorkoutInput] = useState('');
+  const workoutSuggestions = getPlanExerciseSuggestions(existingExercises, workoutInput);
 
-  const handleAddWorkout = (day: string) => {
-    if (!workoutInput) {
+  const handleAddWorkout = (day: string, value = workoutInput) => {
+    if (!value.trim()) {
       setEditingDay(null);
+      setWorkoutInput('');
       return;
     }
     setSchedule(prev => ({
       ...prev,
-      [day]: { 
-        ...prev[day], 
-        exercises: [...prev[day].exercises, workoutInput.toUpperCase()],
-        description: prev[day].exercises.length === 0 ? workoutInput.toUpperCase() : `${prev[day].description}, ${workoutInput.toUpperCase()}`
-      }
+      [day]: addExerciseToPlanDay(prev[day], value)
     }));
     setEditingDay(null);
     setWorkoutInput('');
@@ -571,7 +554,7 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
   const handleSave = () => {
     if (!name) return alert("PLEASE ENTER A PLAN NAME");
     const newPlan: TrainingPlan = {
-      id: Math.random().toString(36).substring(2, 11),
+      id: createId(),
       name: name.toUpperCase(),
       durationWeeks: duration,
       currentWeek: 1,
@@ -700,8 +683,7 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
                               setSchedule(prev => ({
                                 ...prev,
                                 [day]: {
-                                  ...prev[day],
-                                  exercises: prev[day].exercises.filter((_, i) => i !== idx)
+                                  ...removeExerciseFromPlanDay(prev[day], idx)
                                 }
                               }));
                             }}
@@ -756,14 +738,15 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
                               <Plus className="rotate-45" size={14} />
                             </button>
                           </div>
-                          {workoutInput && existingExercises.filter(ex => ex.toUpperCase().includes(workoutInput.toUpperCase()) && ex.toUpperCase() !== workoutInput.toUpperCase()).length > 0 && (
+                          {workoutSuggestions.length > 0 && (
                             <div className="absolute top-full left-0 mt-1 w-full bg-surface border-2 border-primary z-50 max-h-32 overflow-y-auto">
-                              {existingExercises.filter(ex => ex.toUpperCase().includes(workoutInput.toUpperCase()) && ex.toUpperCase() !== workoutInput.toUpperCase()).map(ex => (
+                              {workoutSuggestions.map(ex => (
                                 <button
                                   key={ex}
                                   className="w-full text-left px-2 py-1 text-[10px] font-mono text-primary hover:bg-primary hover:text-black uppercase"
+                                  type="button"
                                   onClick={() => {
-                                    setWorkoutInput(ex);
+                                    handleAddWorkout(day, ex);
                                   }}
                                 >
                                   {ex}
@@ -832,7 +815,7 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
   );
 };
 
-const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExportData, onImportData }: { settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>>, onToggleUnit: () => void, onWipeData: () => void, onExportData: () => void, onImportData: (data: object) => void }) => {
+const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExportData, onImportData }: { settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>>, onToggleUnit: () => void, onWipeData: () => void, onExportData: () => void, onImportData: (data: ImportedBackupData) => void }) => {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -1077,7 +1060,7 @@ export default function App() {
       newExerciseNames.forEach(name => {
         if (!existingNames.has(name)) {
           toAdd.push({
-            id: Math.random().toString(36).substring(2, 11),
+            id: createId(),
             name: name,
             sets: 3,
             reps: "8-15",
@@ -1137,26 +1120,12 @@ export default function App() {
       return updatedPrs;
     });
 
-    // Reset exercise logs for the next day
-    setExercises(prev => prev.map(ex => {
-      const wasInToday = currentTodayExerciseNames.includes(ex.name);
-      return { 
-        ...ex, 
-        lastLogs: (wasInToday && ex.logs.length > 0)
-          ? ex.logs.map(log => log?.completed ? { ...log } : undefined)
-          : ex.lastLogs,
-        logs: [] 
-      };
-    }));
+    // Reset only the completed day's exercise logs; preserve unfinished logs on other days.
+    setExercises(prev => completeWorkoutExercises(prev, currentTodayExerciseNames));
     // Advance day counter for the active plan
     setPlans(prev => prev.map(p => {
       if (p.id !== activePlanId) return p;
-      const nextDay = p.currentDay + 1;
-      return { 
-        ...p, 
-        currentDay: nextDay,
-        currentWeek: Math.ceil(nextDay / 7)
-      };
+      return advancePlanProgress(p);
     }));
     // Scroll to top
     window.scrollTo(0, 0);
@@ -1173,18 +1142,12 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleImportData = (data: Record<string, unknown>) => {
-    const result = validateImportedBackup(data);
-    if (!result.ok) {
-      alert('error' in result ? result.error : 'INVALID BACKUP FILE');
-      return;
-    }
-
-    setExercises(result.value.exercises);
-    setPrs(result.value.prs);
-    setPlans(result.value.plans);
-    setActivePlanId(result.value.activePlanId);
-    setSettings(result.value.settings);
+  const handleImportData = (data: ImportedBackupData) => {
+    setExercises(data.exercises);
+    setPrs(data.prs);
+    setPlans(data.plans);
+    setActivePlanId(data.activePlanId);
+    setSettings(data.settings);
   };
 
   const handleWipeData = () => {
@@ -1196,10 +1159,12 @@ export default function App() {
   };
 
   const activePlan = plans.find(p => p.id === activePlanId);
-  const dayCounter = activePlan?.currentDay || 1;
+  const planIsComplete = activePlan ? isPlanComplete(activePlan) : false;
+  const activePlanProgress = activePlan ? getPlanProgressSnapshot(activePlan) : null;
+  const dayCounter = activePlanProgress?.displayDay || 1;
   const DAYS_MAP = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
   const todayName = DAYS_MAP[(dayCounter - 1) % 7];
-  const currentWeek = Math.ceil(dayCounter / 7);
+  const currentWeek = activePlanProgress?.displayWeek ?? Math.ceil(dayCounter / 7);
   const todaySchedule = activePlan?.schedule[todayName];
   
   // Filter exercises to only show those assigned to today in the active plan
@@ -1212,7 +1177,7 @@ export default function App() {
       <div className="min-h-screen bg-black text-text-main flex flex-col">
         <Routes>
           <Route path="/" element={
-            !activePlan || !todaySchedule ? (
+            !activePlan || planIsComplete || !todaySchedule ? (
               <>
                 <Header title="NO ACTIVE PLAN" subtitle="AWAITING DIRECTIVES" />
                 <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">

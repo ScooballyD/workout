@@ -1,4 +1,4 @@
-import type { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types.ts';
+import type { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types';
 
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'lbs',
@@ -6,16 +6,18 @@ export const DEFAULT_SETTINGS: Settings = {
   matchWeight: false,
 };
 
+export type ImportedBackupData = {
+  exercises: Exercise[];
+  prs: PR[];
+  plans: TrainingPlan[];
+  activePlanId: string | null;
+  settings: Settings;
+};
+
 type ImportValidationResult =
   | {
       ok: true;
-      value: {
-        exercises: Exercise[];
-        prs: PR[];
-        plans: TrainingPlan[];
-        activePlanId: string | null;
-        settings: Settings;
-      };
+      value: ImportedBackupData;
     }
   | {
       ok: false;

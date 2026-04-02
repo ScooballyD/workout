@@ -2,16 +2,9 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Trophy } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { Header } from '../components/Header';
 import { cn } from '../lib/utils';
 import type { PR, Settings } from '../types';
-
-const Header = ({ title }: { title: string }) => (
-  <header className="sticky top-0 z-40 bg-black/95 backdrop-blur-sm border-b-2 border-muted p-4 pt-8">
-    <h1 className="text-[64px] font-display font-bold leading-none tracking-tighter text-text-main m-0 p-0 uppercase">
-      {title}
-    </h1>
-  </header>
-);
 
 export default function PRVault({ prs, settings }: { prs: PR[]; settings: Settings }) {
   const [filter, setFilter] = useState('ALL');
