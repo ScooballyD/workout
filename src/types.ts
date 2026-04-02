@@ -39,7 +39,6 @@ export interface TrainingPlan {
   };
   advanced?: {
     autoIncrement: boolean;
-    rpeTracking: boolean;
   };
 }
 
