@@ -44,6 +44,11 @@
 - If a change affects installability, offline behavior, routing, or persisted state, verify it in `npm run preview` as well.
 - Add or update tests if the repository later gains a test runner. For now, do not claim behavior is verified without at least running the available checks.
 
+## Planning instructions
+- For large, risky, or multi-step tasks, create and maintain an execution plan using `plans.md` at the repo root.
+- Use `plans.md` when the work spans multiple files, changes persisted data or PWA behavior, involves refactoring, or is likely to require handoff between agents.
+- Follow the format and maintenance rules in `plans.md`, and keep the plan current as decisions, progress, and discoveries change.
+
 ## Change instructions
 - Keep edits incremental and easy to review.
 - Do not perform broad refactors unless they directly support the requested task.
