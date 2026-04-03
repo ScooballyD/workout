@@ -83,6 +83,35 @@ test('validateImportedBackup accepts older backup shapes with omitted optional f
   assert.deepEqual(result.value.prs, []);
   assert.equal(result.value.activePlanId, null);
   assert.equal(result.value.exercises[0].primaryMuscle, 'Other');
+  assert.equal(result.value.plans[0].deload, undefined);
+});
+
+test('validateImportedBackup preserves explicit deload plan metadata', () => {
+  const backup = createValidBackup() as ReturnType<typeof createValidBackup> & {
+    plans: Array<ReturnType<typeof createValidBackup>['plans'][number] & {
+      deload?: {
+        enabled: true;
+        baseDurationWeeks: number;
+      };
+    }>;
+  };
+  backup.plans[0].durationWeeks = 5;
+  backup.plans[0].deload = {
+    enabled: true,
+    baseDurationWeeks: 4,
+  };
+
+  const result = validateImportedBackup(backup);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    throw new Error('expected import to succeed');
+  }
+
+  assert.deepEqual(result.value.plans[0].deload, {
+    enabled: true,
+    baseDurationWeeks: 4,
+  });
 });
 
 test('validateImportedBackup rejects malformed activePlanId values', () => {

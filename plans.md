@@ -192,6 +192,72 @@ Summarize what shipped, what remains, and any follow-up tasks.
 
 ---
 
+# Add explicit optional deload weeks to training plans
+
+This is a living execution plan. Keep `Progress`, `Decision Log`, `Surprises & Discoveries`, and `Outcomes & Retrospective` current as work proceeds.
+
+## Purpose / User Outcome
+
+Users creating a new training plan can optionally turn on a final deload week. When enabled, the saved plan lasts one extra week beyond the chosen duration and that extra final week is treated as part of the normal plan lifecycle, not a temporary runtime override. During the deload week, workout exercises should default to 25% less weight than their normal working value and 25% fewer sets using the user-specified rule of record for set rounding (`3 -> 3`, `5 -> 4`). Existing saved plans and imported backups that do not include any deload data must still load and run without errors.
+
+## Context and Orientation
+
+[`src/types.ts`](C:\Users\carve\OneDrive\Projects\workout\src\types.ts) defines the persisted `TrainingPlan` shape, so it is the source of truth for whether deload is part of the plan model. [`src/lib/backup.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\backup.ts) normalizes plans from localStorage and imported backups, making it the compatibility boundary for older plan records that do not yet include deload metadata. [`src/App.tsx`](C:\Users\carve\OneDrive\Projects\workout\src\App.tsx) owns the create-plan form, the saved plan list, active-plan workout rendering, and the exercise log screen, so it currently threads `currentWeek`, `durationWeeks`, and plan state into the workout experience. [`src/lib/plan-progress.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\plan-progress.ts), [`src/lib/next-set-info.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\next-set-info.ts), and [`src/lib/exercise-log-inputs.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\exercise-log-inputs.ts) determine how weeks advance and which default working values appear during execution, so deload behavior needs to be explicit there instead of hidden in JSX conditionals.
+
+## Progress
+
+- [x] 2026-04-03 09:26 America/Chicago: Reviewed current plan model, create-plan flow, progress helpers, workout default helpers, and backup normalization to locate the deload lifecycle boundary.
+- [x] 2026-04-03 09:39 America/Chicago: Added failing tests for deload plan normalization, deload-week detection, reduced set-count rounding, and reduced default-weight behavior, then verified the expected red state before implementation.
+- [x] 2026-04-03 09:56 America/Chicago: Implemented persisted deload metadata, explicit deload helpers, create-plan UI toggles and summaries, and active workout rendering/logging changes for the final deload week.
+- [x] 2026-04-03 10:17 America/Chicago: Ran `npm run lint`, `npm run build`, and manual preview validation for normal-plan creation, deload-plan creation, final-week deload execution, and legacy stored plan loading.
+
+## Decision Log
+
+- Decision: Store deload as explicit persisted plan metadata instead of deriving it from plan length or runtime UI state.
+  Rationale: The user asked for the extra week to be part of the plan lifecycle. Persisting a `deload` setting on the plan keeps creation, display, execution, export/import, and legacy compatibility predictable.
+  Date/Author: 2026-04-03 / Codex
+- Decision: Preserve decimal weight values during deload instead of rounding to the nearest whole number.
+  Rationale: The app already stores and displays decimal weights for unit conversion. Applying the 25% reduction without whole-number rounding keeps deload defaults consistent with the existing weight model and avoids surprising jumps for kg users.
+  Date/Author: 2026-04-03 / Codex
+
+## Surprises & Discoveries
+
+- Observation: `durationWeeks` is currently treated as total lifecycle length everywhere in the app, including progress bars and completion checks.
+  Evidence: `getPlanProgressSnapshot`, `isPlanComplete`, and the plan summary UI in `src/App.tsx`.
+- Observation: Default workout values are computed in helper modules before rendering, which makes them a good fit for explicit deload logic.
+  Evidence: `getNextSetInfo` and `createExerciseLogInputValues` currently own default weight and rep calculations.
+- Observation: The active workout list and log UI both assume `exercise.sets` is the rendered set count, so deload set reduction will likely need an execution-specific display layer rather than mutating stored exercise definitions.
+  Evidence: `DailyGrind` and `ExerciseLog` render arrays based on `exercise.sets`.
+- Observation: The requested set-rounding examples only match `ceil(originalSets * 0.75)`, not “round the reduction amount.”
+  Evidence: The explicit user examples `3 -> 3` and `5 -> 4`.
+
+## Plan of Work
+
+First, add regression coverage for the new persisted plan contract and runtime behavior. The tests should prove that legacy plans without deload metadata still normalize successfully, that a plan with deload enabled has one extra lifecycle week, and that final-week workout defaults apply the exact deload rules without changing normal-week behavior. Then extend the `TrainingPlan` type and backup normalization to include explicit deload metadata with safe defaults for older stored data. After that, update the create-plan form in `src/App.tsx` with a mobile-friendly optional deload toggle and save logic that adds one extra week when enabled while keeping the user-facing selected duration understandable. Finally, thread the plan’s deload state into workout execution so the final week reduces default weight by 25% without whole-number rounding and reduces displayed/loggable set count by the established rounding rule while leaving the underlying exercise records and non-deload plans unchanged.
+
+## Validation and Acceptance
+
+- Run focused tests that cover legacy plan normalization, deload progress, and deload workout default calculations. Confirm the new tests fail before implementation and pass after the changes.
+- Run `npm run lint` and confirm there are no TypeScript errors.
+- Run `npm run build` and confirm the production bundle succeeds.
+- Manually confirm:
+  - creating a normal plan behaves exactly as before
+  - creating a plan with deload enabled adds one extra week beyond the selected duration
+  - the final week uses reduced weight and reduced sets per the documented rules
+  - existing localStorage plans and older backups still load without migration errors
+
+## Idempotence and Recovery
+
+These changes are safe to retry as long as the type definition, backup normalization, and runtime logic are kept in sync. Legacy plans should continue to parse because the new deload metadata will be optional on read and defaulted when absent. If the deload lifecycle regresses progress or execution behavior, revert the type, backup, helper, and `App.tsx` edits together so the persisted contract and the UI/runtime semantics do not diverge.
+
+## Outcomes & Retrospective
+
+Implemented optional final deload weeks as persisted plan metadata without breaking older plan records. New plans can now opt into a final deload week at creation time, saved deload plans store both total duration and base selected duration explicitly, and the final week now renders as part of the normal plan lifecycle in the plans screen and daily workout flow.
+
+Verification completed for the requested scope. Focused regression tests passed after a confirmed red-to-green cycle, `npm run lint` and `npm run build` both succeeded, preview validation showed that a normal plan still saved as `WEEK 1 OF 4` with no deload copy, a deload plan saved as `WEEK 1 OF 5` with a base-plus-deload note, the final deload week rendered 4 working sets for a 5-set exercise and defaulted 185 to 138.75, and a legacy stored plan without deload metadata loaded cleanly with no migration error behavior.
+
+---
+
 # Persist exercise muscle-group tags
 
 This is a living execution plan. Keep `Progress`, `Decision Log`, `Surprises & Discoveries`, and `Outcomes & Retrospective` current as work proceeds.

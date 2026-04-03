@@ -1,4 +1,5 @@
-import type { Exercise } from '../types.ts';
+import type { Exercise, TrainingPlan } from '../types.ts';
+import { getPlanExerciseSetCount, getPlanWeight } from './deload.ts';
 
 export type ExerciseLogInputSource = 'default' | 'manual' | 'propagated';
 
@@ -12,13 +13,15 @@ export interface ExerciseLogInputValue {
 interface ExerciseLogDefaultsOptions {
   autoIncrement: boolean;
   currentWeek: number;
+  plan?: TrainingPlan;
 }
 
 const getDefaultForSet = (
   exercise: Exercise,
   setIndex: number,
-  { autoIncrement, currentWeek }: ExerciseLogDefaultsOptions
+  options: ExerciseLogDefaultsOptions
 ) => {
+  const { autoIncrement, currentWeek } = options;
   let weight = exercise.recommended?.weight || 0;
   let reps = exercise.recommended?.reps || 0;
   const lastLog = exercise.lastLogs?.[setIndex];
@@ -30,21 +33,26 @@ const getDefaultForSet = (
     reps += currentWeek - 1;
   }
 
-  return { weight, reps };
+  return { weight: getPlanWeight(weight, options.plan, currentWeek), reps };
 };
 
 export const createExerciseLogInputValues = (
   exercise: Exercise,
   options: ExerciseLogDefaultsOptions
 ): ExerciseLogInputValue[] =>
-  Array.from({ length: exercise.sets }, (_, index) => {
-    const defaults = getDefaultForSet(exercise, index, options);
-    return {
-      ...defaults,
-      weightSource: 'default',
-      repsSource: 'default',
-    };
-  });
+  Array.from(
+    {
+      length: getPlanExerciseSetCount(exercise, options.plan, options.currentWeek),
+    },
+    (_, index) => {
+      const defaults = getDefaultForSet(exercise, index, options);
+      return {
+        ...defaults,
+        weightSource: 'default',
+        repsSource: 'default',
+      };
+    }
+  );
 
 export const syncExerciseLogInputValues = (
   previousValues: ExerciseLogInputValue[],
@@ -52,36 +60,42 @@ export const syncExerciseLogInputValues = (
   options: ExerciseLogDefaultsOptions,
   resetDrafts = false
 ): ExerciseLogInputValue[] =>
-  Array.from({ length: exercise.sets }, (_, index) => {
-    const log = exercise.logs[index];
-    if (log?.completed) {
+  Array.from(
+    {
+      length: getPlanExerciseSetCount(exercise, options.plan, options.currentWeek),
+    },
+    (_, index) => {
+      const log = exercise.logs[index];
+      if (log?.completed) {
+        return {
+          weight: log.weight,
+          reps: log.reps,
+          weightSource: 'manual',
+          repsSource: 'manual',
+        };
+      }
+
+      const defaults = getDefaultForSet(exercise, index, options);
+      const previous = resetDrafts ? undefined : previousValues[index];
+      const weightSource = previous?.weightSource ?? 'default';
+      const repsSource = previous?.repsSource ?? 'default';
+
       return {
-        weight: log.weight,
-        reps: log.reps,
-        weightSource: 'manual',
-        repsSource: 'manual',
+        weight: weightSource === 'default' ? defaults.weight : previous!.weight,
+        reps: repsSource === 'default' ? defaults.reps : previous!.reps,
+        weightSource,
+        repsSource,
       };
     }
-
-    const defaults = getDefaultForSet(exercise, index, options);
-    const previous = resetDrafts ? undefined : previousValues[index];
-    const weightSource = previous?.weightSource ?? 'default';
-    const repsSource = previous?.repsSource ?? 'default';
-
-    return {
-      weight: weightSource === 'default' ? defaults.weight : previous!.weight,
-      reps: repsSource === 'default' ? defaults.reps : previous!.reps,
-      weightSource,
-      repsSource,
-    };
-  });
+  );
 
 export const applyWeightChangeToInputs = (
   previousValues: ExerciseLogInputValue[],
   exercise: Exercise,
   setIndex: number,
   weight: number,
-  matchWeight: boolean
+  matchWeight: boolean,
+  options?: ExerciseLogDefaultsOptions
 ): ExerciseLogInputValue[] => {
   const nextValues = [...previousValues];
   nextValues[setIndex] = {
@@ -94,7 +108,13 @@ export const applyWeightChangeToInputs = (
     return nextValues;
   }
 
-  for (let index = setIndex + 1; index < exercise.sets; index += 1) {
+  const setCount = getPlanExerciseSetCount(
+    exercise,
+    options?.plan,
+    options?.currentWeek ?? 1
+  );
+
+  for (let index = setIndex + 1; index < setCount; index += 1) {
     if (exercise.logs[index]?.completed) {
       continue;
     }

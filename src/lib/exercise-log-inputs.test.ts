@@ -6,7 +6,7 @@ import {
   createExerciseLogInputValues,
   syncExerciseLogInputValues,
 } from './exercise-log-inputs.ts';
-import type { Exercise } from '../types.ts';
+import type { Exercise, TrainingPlan } from '../types.ts';
 
 const baseExercise = (): Exercise => ({
   id: 'bench',
@@ -94,5 +94,46 @@ test('applyWeightChangeToInputs keeps set editing independent when match weight 
   assert.deepEqual(
     updatedInputs.map((input) => input.weightSource),
     ['manual', 'default', 'default']
+  );
+});
+
+test('createExerciseLogInputValues shortens the final deload week to the rounded-up reduced set count', () => {
+  const exercise = {
+    ...baseExercise(),
+    sets: 5,
+    logs: [undefined, undefined, undefined, undefined, undefined],
+    lastLogs: [
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+    ],
+  };
+  const plan: TrainingPlan = {
+    id: 'plan-1',
+    name: 'BASE',
+    durationWeeks: 5,
+    currentWeek: 5,
+    currentDay: 29,
+    schedule: {
+      MON: { type: 'workout', exercises: ['Bench Press'] },
+    },
+    deload: {
+      enabled: true,
+      baseDurationWeeks: 4,
+    },
+  };
+
+  const inputs = createExerciseLogInputValues(exercise, {
+    autoIncrement: false,
+    currentWeek: 5,
+    plan,
+  });
+
+  assert.equal(inputs.length, 4);
+  assert.deepEqual(
+    inputs.map((input) => input.weight),
+    [138.75, 138.75, 138.75, 138.75]
   );
 });

@@ -225,6 +225,28 @@ const normalizeSchedule = (value: unknown): TrainingPlan['schedule'] | null => {
   return schedule;
 };
 
+const normalizePlanDeload = (
+  value: unknown,
+  durationWeeks: number
+): TrainingPlan['deload'] | null => {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  if (value.enabled !== true || !isPositiveInteger(value.baseDurationWeeks)) {
+    return null;
+  }
+
+  if (durationWeeks !== value.baseDurationWeeks + 1) {
+    return null;
+  }
+
+  return {
+    enabled: true,
+    baseDurationWeeks: value.baseDurationWeeks,
+  };
+};
+
 const normalizePlan = (value: unknown): TrainingPlan | null => {
   if (
     !isObject(value) ||
@@ -263,6 +285,15 @@ const normalizePlan = (value: unknown): TrainingPlan | null => {
     }
 
     plan.advanced = { autoIncrement: value.advanced.autoIncrement };
+  }
+
+  if (value.deload !== undefined) {
+    const deload = normalizePlanDeload(value.deload, durationWeeks);
+    if (!deload) {
+      return null;
+    }
+
+    plan.deload = deload;
   }
 
   return plan;

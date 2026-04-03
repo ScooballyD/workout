@@ -26,6 +26,11 @@ export interface Workout {
   exercises: Exercise[];
 }
 
+export interface PlanDeload {
+  enabled: boolean;
+  baseDurationWeeks: number;
+}
+
 export interface TrainingPlan {
   id: string;
   name: string;
@@ -43,6 +48,7 @@ export interface TrainingPlan {
   advanced?: {
     autoIncrement: boolean;
   };
+  deload?: PlanDeload;
 }
 
 export interface PR {

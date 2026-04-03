@@ -54,6 +54,7 @@ import {
   type PlanExerciseOption,
 } from './lib/plan-editor';
 import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
+import { getPlanExerciseSetCount, isDeloadWeek } from './lib/deload.ts';
 import {
   deletePlanById,
   mergePlanEdits,
@@ -151,19 +152,23 @@ const DailyGrind = ({
   onLogSet: (id: string, setIndex: number, weight: number, reps: number) => void,
   onCompleteWorkout: () => void 
 }) => {
-  const isCompleted = (ex: Exercise) => ex.logs.filter(l => l?.completed).length >= ex.sets;
+  const autoIncrement = activePlan?.advanced?.autoIncrement || false;
+  const currentWeek = activePlan?.currentWeek || 1;
+  const isFinalDeloadWeek = isDeloadWeek(activePlan, currentWeek);
+  const getExerciseSetCount = (exercise: Exercise) =>
+    getPlanExerciseSetCount(exercise, activePlan, currentWeek);
+  const isCompleted = (exercise: Exercise) =>
+    exercise.logs.filter(l => l?.completed).length >= getExerciseSetCount(exercise);
   const activeIndex = exercises.findIndex(ex => !isCompleted(ex));
   const activeExercise = exercises[activeIndex];
   const allCompleted = activeIndex === -1;
-
-  const autoIncrement = activePlan?.advanced?.autoIncrement || false;
-  const currentWeek = activePlan?.currentWeek || 1;
 
   const handleLogNextSet = () => {
     if (!activeExercise) return;
     const { actualSetIndex, defaultWeight, defaultReps } = getNextSetInfo(activeExercise, {
       autoIncrement,
       currentWeek,
+      plan: activePlan,
     });
     if (actualSetIndex === null) return;
     onLogSet(activeExercise.id, actualSetIndex, defaultWeight, defaultReps);
@@ -183,11 +188,19 @@ const DailyGrind = ({
         </button>
       )}
 
+      {isFinalDeloadWeek && (
+        <div className="border-2 border-primary bg-primary/10 px-4 py-3 text-center">
+          <p className="font-mono text-[10px] tracking-[0.2em] text-primary uppercase">Final Week Deload</p>
+          <p className="text-sm font-bold uppercase text-text-main">Weights run at 75% and sets use the reduced deload count.</p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4">
         {exercises.map((ex, idx) => {
           const completed = isCompleted(ex);
           const isActive = idx === activeIndex;
-          const nextSetInfo = getNextSetInfo(ex, { autoIncrement, currentWeek });
+          const setCount = getExerciseSetCount(ex);
+          const nextSetInfo = getNextSetInfo(ex, { autoIncrement, currentWeek, plan: activePlan });
           const displayReps = completed ? ex.reps : nextSetInfo.defaultReps || ex.reps;
           
           return (
@@ -226,7 +239,7 @@ const DailyGrind = ({
                   </div>
                 </div>
                 <div className="flex gap-1">
-                  {Array.from({ length: ex.sets }).map((_, i) => (
+                  {Array.from({ length: setCount }).map((_, i) => (
                     <div 
                       key={i} 
                       className={cn(
@@ -274,8 +287,9 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
 
   const autoIncrement = activePlan?.advanced?.autoIncrement || false;
   const currentWeek = activePlan?.currentWeek || 1;
+  const isFinalDeloadWeek = isDeloadWeek(activePlan, currentWeek);
   const [inputValues, setInputValues] = useState<ExerciseLogInputValue[]>(
-    () => exercise ? createExerciseLogInputValues(exercise, { autoIncrement, currentWeek }) : []
+    () => exercise ? createExerciseLogInputValues(exercise, { autoIncrement, currentWeek, plan: activePlan }) : []
   );
   const previousExerciseIdRef = useRef<string | undefined>(exercise?.id);
 
@@ -287,18 +301,25 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
       syncExerciseLogInputValues(
         prev,
         exercise,
-        { autoIncrement, currentWeek },
+        { autoIncrement, currentWeek, plan: activePlan },
         shouldResetDrafts
       )
     );
     previousExerciseIdRef.current = exercise.id;
-  }, [exercise, autoIncrement, currentWeek]);
+  }, [exercise, activePlan, autoIncrement, currentWeek]);
 
   if (!exercise) return <div>Exercise not found</div>;
-  const nextIncompleteSetIndex = getNextIncompleteSetIndex(exercise.logs, exercise.sets);
+  const planSetCount = getPlanExerciseSetCount(exercise, activePlan, currentWeek);
+  const nextIncompleteSetIndex = getNextIncompleteSetIndex(exercise.logs, planSetCount);
 
   const handleWeightChange = (i: number, value: number) => {
-    setInputValues((prev) => applyWeightChangeToInputs(prev, exercise, i, value, settings.matchWeight));
+    setInputValues((prev) =>
+      applyWeightChangeToInputs(prev, exercise, i, value, settings.matchWeight, {
+        plan: activePlan,
+        autoIncrement,
+        currentWeek,
+      })
+    );
   };
 
   return (
@@ -313,15 +334,25 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
           <button onClick={() => navigate(-1)} className="text-white size-12 flex items-center justify-center border-2 border-transparent hover:border-muted rounded transition-colors">
             <ArrowLeft size={24} />
           </button>
-          {exercise.recommended && (
-            <div className="text-secondary text-sm tracking-widest font-bold bg-surface px-3 py-1 rounded border-2 border-muted">
-              REC: {exercise.recommended.weight}{settings.unit.toUpperCase()} x {exercise.recommended.reps}
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {isFinalDeloadWeek && (
+              <div className="text-primary text-[10px] tracking-widest font-bold bg-primary/10 px-3 py-1 rounded border-2 border-primary uppercase">
+                Deload Week
+              </div>
+            )}
+            {exercise.recommended && (
+              <div className="text-secondary text-sm tracking-widest font-bold bg-surface px-3 py-1 rounded border-2 border-muted">
+                REC: {exercise.recommended.weight}{settings.unit.toUpperCase()} x {exercise.recommended.reps}
+              </div>
+            )}
+          </div>
         </div>
         <h1 className="text-white text-[48px] font-bold leading-[1.1] tracking-tighter uppercase">
           {exercise.name.split(' ').map((word, i) => <React.Fragment key={i}>{word}<br/></React.Fragment>)}
         </h1>
+        {isFinalDeloadWeek && (
+          <p className="font-mono text-[10px] tracking-[0.2em] text-primary uppercase">75% weight, reduced deload set count</p>
+        )}
       </header>
 
       <main className="flex-1 p-4 pb-24 flex flex-col gap-4">
@@ -332,7 +363,7 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
           <div className="w-16 text-center">LOG</div>
         </div>
 
-        {Array.from({ length: exercise.sets }).map((_, i) => {
+        {Array.from({ length: planSetCount }).map((_, i) => {
           const log = exercise.logs[i];
           const isNext = i === nextIncompleteSetIndex;
           const isCompleted = log?.completed || false;
@@ -417,6 +448,7 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, onRestartPlan, onDel
   const activePlan = plans.find(p => p.id === activePlanId);
   const progress = activePlan ? getPlanProgressSnapshot(activePlan) : null;
   const currentWeek = progress?.displayWeek ?? 0;
+  const activePlanInDeloadWeek = activePlan ? isDeloadWeek(activePlan, currentWeek) : false;
   const todayName = activePlan ? PLAN_DAYS[(Math.min(dayCounter, progress?.totalDays ?? dayCounter) - 1) % 7] : "";
 
   return (
@@ -439,7 +471,14 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, onRestartPlan, onDel
             <div className="flex justify-between items-start mb-6">
               <div>
                 <h3 className="font-display text-4xl text-text-main leading-none uppercase">{activePlan.name}</h3>
-                <p className="font-mono text-primary text-sm mt-1 uppercase">WEEK {currentWeek} OF {activePlan.durationWeeks}</p>
+                <p className="font-mono text-primary text-sm mt-1 uppercase">
+                  WEEK {currentWeek} OF {activePlan.durationWeeks}{activePlanInDeloadWeek ? ' • DELOAD' : ''}
+                </p>
+                {activePlan.deload?.enabled && (
+                  <p className="font-mono text-[10px] text-muted mt-2 uppercase tracking-[0.2em]">
+                    {activePlan.deload.baseDurationWeeks} base weeks plus a final deload week
+                  </p>
+                )}
               </div>
               <div className="bg-primary text-black px-2 py-1 font-display text-sm">ACTIVE</div>
             </div>
@@ -591,9 +630,10 @@ const CreatePlan = ({
   const planToEdit = plans.find((plan) => plan.id === editPlanId);
   const isEditing = Boolean(planToEdit);
   const [name, setName] = useState(() => planToEdit?.name ?? '');
-  const [duration, setDuration] = useState(() => planToEdit?.durationWeeks ?? 4);
+  const [duration, setDuration] = useState(() => planToEdit?.deload?.baseDurationWeeks ?? planToEdit?.durationWeeks ?? 4);
   const [schedule, setSchedule] = useState<Record<string, PlanEditorDay>>(() => createPlanEditorSchedule(planToEdit));
   const [autoIncrement, setAutoIncrement] = useState(() => planToEdit?.advanced?.autoIncrement ?? false);
+  const [deloadEnabled, setDeloadEnabled] = useState(() => planToEdit?.deload?.enabled ?? false);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [workoutInput, setWorkoutInput] = useState('');
   const [selectedPrimaryMuscle, setSelectedPrimaryMuscle] = useState<PrimaryMuscleGroup>(DEFAULT_PRIMARY_MUSCLE_GROUP);
@@ -613,9 +653,10 @@ const CreatePlan = ({
     }
 
     setName(planToEdit?.name ?? '');
-    setDuration(planToEdit?.durationWeeks ?? 4);
+    setDuration(planToEdit?.deload?.baseDurationWeeks ?? planToEdit?.durationWeeks ?? 4);
     setSchedule(createPlanEditorSchedule(planToEdit));
     setAutoIncrement(planToEdit?.advanced?.autoIncrement ?? false);
+    setDeloadEnabled(planToEdit?.deload?.enabled ?? false);
     setEditingDay(null);
     setWorkoutInput('');
     setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
@@ -645,16 +686,23 @@ const CreatePlan = ({
 
   const handleSave = () => {
     if (!name) return alert("PLEASE ENTER A PLAN NAME");
+    const totalDurationWeeks = duration + (deloadEnabled ? 1 : 0);
     const newPlan: TrainingPlan = {
       id: planToEdit?.id ?? createId(),
       name: name.toUpperCase(),
-      durationWeeks: duration,
+      durationWeeks: totalDurationWeeks,
       currentWeek: planToEdit?.currentWeek ?? 1,
       currentDay: planToEdit?.currentDay ?? 1,
       schedule,
       advanced: {
         autoIncrement
-      }
+      },
+      deload: deloadEnabled
+        ? {
+            enabled: true,
+            baseDurationWeeks: duration,
+          }
+        : undefined,
     };
     onSave(newPlan, exercisePrimaryMuscles, planToEdit ? 'edit' : 'create');
     navigate('/plans');
@@ -731,6 +779,11 @@ const CreatePlan = ({
               <span>1</span>
               <span>10</span>
             </div>
+            {deloadEnabled && (
+              <p className="font-mono text-[10px] text-primary uppercase tracking-[0.2em]">
+                Save adds one final deload week: {duration + 1} total weeks
+              </p>
+            )}
           </div>
         </section>
 
@@ -884,11 +937,23 @@ const CreatePlan = ({
                 <div className={cn("absolute top-1 bottom-1 w-3 bg-white transition-all", autoIncrement ? "right-1" : "left-1")} />
               </button>
             </div>
+            <div className="flex items-center justify-between border-b border-muted pb-2">
+              <span className="text-sm font-bold uppercase">FINAL DELOAD WEEK</span>
+              <button
+                onClick={() => setDeloadEnabled(!deloadEnabled)}
+                className={cn("w-10 h-5 relative transition-colors", deloadEnabled ? "bg-primary" : "bg-muted")}
+              >
+                <div className={cn("absolute top-1 bottom-1 w-3 bg-white transition-all", deloadEnabled ? "right-1" : "left-1")} />
+              </button>
+            </div>
+            <p className="font-mono text-[10px] leading-tight text-muted uppercase">
+              Deload week keeps decimal weights, uses 75% of working weight, and rounds the reduced set count up.
+            </p>
           </div>
           <div className="bg-black/40 p-4 border-l-4 border-primary">
             <p className="text-[10px] leading-tight text-muted uppercase">PLAN SUMMARY</p>
             <p className="text-lg font-black mt-1 uppercase">
-              {(Object.values(schedule) as { type: string }[]).filter(s => s.type === 'workout').length} DAYS/WEEK • {duration} WEEKS
+              {(Object.values(schedule) as { type: string }[]).filter(s => s.type === 'workout').length} DAYS/WEEK • {deloadEnabled ? `${duration} + DELOAD` : `${duration} WEEKS`}
             </p>
             <p className="text-[10px] text-primary mt-2 italic uppercase">INTENSITY: HIGH PERFORMANCE HUD ENABLED</p>
           </div>
@@ -1319,6 +1384,7 @@ export default function App() {
   const dayCounter = activePlanProgress?.displayDay || 1;
   const todayName = PLAN_DAYS[(dayCounter - 1) % 7];
   const currentWeek = activePlanProgress?.displayWeek ?? Math.ceil(dayCounter / 7);
+  const activePlanInDeloadWeek = isDeloadWeek(activePlan, currentWeek);
   const todaySchedule = activePlan?.schedule[todayName];
   
   // Filter exercises to only show those assigned to today in the active plan
@@ -1348,7 +1414,7 @@ export default function App() {
               <>
                 <Header 
                   title={`DAY ${String(dayCounter).padStart(3, '0')}`} 
-                  subtitle={`${todayName} • ${todaySchedule.type === 'workout' ? (todaySchedule.exercises?.join(' + ') || 'WORKOUT') : 'REST DAY'}`} 
+                  subtitle={`${todayName} • ${activePlanInDeloadWeek ? 'DELOAD • ' : ''}${todaySchedule.type === 'workout' ? (todaySchedule.exercises?.join(' + ') || 'WORKOUT') : 'REST DAY'}`} 
                 />
                 {todaySchedule.type === 'workout' ? (
                   <DailyGrind 

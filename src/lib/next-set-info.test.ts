@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { getNextSetInfo } from './next-set-info.ts';
-import type { Exercise } from '../types.ts';
+import type { Exercise, TrainingPlan } from '../types.ts';
 
 test('getNextSetInfo keeps the set index null when every set is complete', () => {
   const exercise: Exercise = {
@@ -36,5 +36,59 @@ test('getNextSetInfo keeps the set index null when every set is complete', () =>
     actualSetIndex: null,
     defaultWeight: 135,
     defaultReps: 6,
+  });
+});
+
+test('getNextSetInfo applies deload weight on the final week without whole-number rounding', () => {
+  const exercise: Exercise = {
+    id: 'bench',
+    name: 'Bench Press',
+    primaryMuscle: 'Chest',
+    sets: 5,
+    reps: '5',
+    logs: [
+      { weight: 155, reps: 5, completed: true },
+      { weight: 155, reps: 5, completed: true },
+      { weight: 155, reps: 5, completed: true },
+      undefined,
+      undefined,
+    ],
+    lastLogs: [
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+    ],
+    recommended: {
+      weight: 185,
+      reps: 5,
+    },
+  };
+  const plan: TrainingPlan = {
+    id: 'plan-1',
+    name: 'BASE',
+    durationWeeks: 5,
+    currentWeek: 5,
+    currentDay: 29,
+    schedule: {
+      MON: { type: 'workout', exercises: ['Bench Press'] },
+    },
+    deload: {
+      enabled: true,
+      baseDurationWeeks: 4,
+    },
+  };
+
+  const nextSetInfo = getNextSetInfo(exercise, {
+    autoIncrement: false,
+    currentWeek: 5,
+    plan,
+  });
+
+  assert.deepEqual(nextSetInfo, {
+    actualSetIndex: 3,
+    defaultWeight: 138.75,
+    defaultReps: 5,
   });
 });
