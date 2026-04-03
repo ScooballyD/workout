@@ -5,3 +5,4 @@ dist/
 .codex/
 .edge-cdp-profile/
 .tmp-playwright/
+.edge-cdp-profile/
