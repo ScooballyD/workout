@@ -18,6 +18,8 @@ import {
   Download, 
   RefreshCw, 
   Trash2,
+  Pencil,
+  RotateCcw,
   ChevronRight,
   Lock
 } from 'lucide-react';
@@ -52,6 +54,12 @@ import {
   type PlanExerciseOption,
 } from './lib/plan-editor';
 import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
+import {
+  deletePlanById,
+  mergePlanEdits,
+  replacePlanById,
+  restartPlanProgress,
+} from './lib/plans.ts';
 import { completeWorkoutExercises } from './lib/workout-completion';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
@@ -62,6 +70,40 @@ import {
 } from './lib/exercise-tags.ts';
 
 const PRVaultPage = React.lazy(() => import('./pages/PRVault'));
+
+const PLAN_DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
+
+type PlanEditorDay = {
+  type: 'workout' | 'rest';
+  exercises: string[];
+  description: string;
+};
+
+const DEFAULT_PLAN_EDITOR_SCHEDULE: Record<string, PlanEditorDay> = {
+  MON: { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
+  TUE: { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
+  WED: { type: 'rest', exercises: [], description: 'RECOVERY & MOBILITY' },
+  THU: { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
+  FRI: { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
+  SAT: { type: 'rest', exercises: [], description: 'ACTIVE RECOVERY' },
+  SUN: { type: 'rest', exercises: [], description: 'REST DAY' },
+};
+
+const createPlanEditorSchedule = (
+  plan?: TrainingPlan
+): Record<string, PlanEditorDay> =>
+  PLAN_DAYS.reduce<Record<string, PlanEditorDay>>((schedule, day) => {
+    const baseDay = DEFAULT_PLAN_EDITOR_SCHEDULE[day];
+    const savedDay = plan?.schedule[day];
+
+    schedule[day] = {
+      type: savedDay?.type ?? baseDay.type,
+      exercises: [...(savedDay?.exercises ?? baseDay.exercises)],
+      description: savedDay?.description ?? baseDay.description,
+    };
+
+    return schedule;
+  }, {});
 
 // --- Components ---
 
@@ -363,18 +405,19 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
   );
 };
 
-const TrainingPlans = ({ plans, activePlanId, onSelectPlan, dayCounter }: { 
+const TrainingPlans = ({ plans, activePlanId, onSelectPlan, onRestartPlan, onDeletePlan, dayCounter }: { 
   plans: TrainingPlan[], 
   activePlanId: string | null,
   onSelectPlan: (id: string) => void,
+  onRestartPlan: (id: string) => void,
+  onDeletePlan: (id: string) => void,
   dayCounter: number
 }) => {
-  const days = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
   const navigate = useNavigate();
   const activePlan = plans.find(p => p.id === activePlanId);
   const progress = activePlan ? getPlanProgressSnapshot(activePlan) : null;
   const currentWeek = progress?.displayWeek ?? 0;
-  const todayName = activePlan ? days[(Math.min(dayCounter, progress?.totalDays ?? dayCounter) - 1) % 7] : "";
+  const todayName = activePlan ? PLAN_DAYS[(Math.min(dayCounter, progress?.totalDays ?? dayCounter) - 1) % 7] : "";
 
   return (
     <motion.div 
@@ -425,20 +468,50 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, dayCounter }: {
           <div className="font-mono text-xs text-muted mb-3 tracking-[0.2em]">YOUR PROTOCOLS</div>
           <div className="flex flex-col gap-2">
             {plans.map(p => (
-              <button 
+              <div 
                 key={p.id}
-                onClick={() => onSelectPlan(p.id)}
                 className={cn(
-                  "flex items-center justify-between p-4 border-2 rounded transition-all text-left",
+                  "border-2 rounded bg-surface transition-all",
                   p.id === activePlanId ? "border-primary bg-primary/5" : "border-muted bg-surface hover:border-primary"
                 )}
               >
-                <div className="flex flex-col">
-                  <span className={cn("font-display text-xl leading-none", p.id === activePlanId ? "text-primary" : "text-text-main")}>{p.name}</span>
-                  <span className="font-mono text-[10px] text-muted mt-1 uppercase">WEEK {p.currentWeek} • DAY {String(p.currentDay).padStart(3, '0')}</span>
+                <button
+                  onClick={() => onSelectPlan(p.id)}
+                  className="flex w-full items-center justify-between p-4 text-left"
+                >
+                  <div className="flex flex-col">
+                    <span className={cn("font-display text-xl leading-none", p.id === activePlanId ? "text-primary" : "text-text-main")}>{p.name}</span>
+                    <span className="font-mono text-[10px] text-muted mt-1 uppercase">WEEK {p.currentWeek} • DAY {String(p.currentDay).padStart(3, '0')}</span>
+                  </div>
+                  {p.id === activePlanId && <Check size={20} className="text-primary" />}
+                </button>
+                <div className="grid grid-cols-3 gap-2 border-t border-muted/60 px-3 py-3">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/create-plan?edit=${p.id}`)}
+                    className="flex min-h-11 items-center justify-center gap-2 border border-muted px-3 py-2 text-[10px] font-bold tracking-[0.2em] text-text-main uppercase transition-colors hover:border-primary hover:text-primary"
+                  >
+                    <Pencil size={14} />
+                    EDIT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRestartPlan(p.id)}
+                    className="flex min-h-11 items-center justify-center gap-2 border border-muted px-3 py-2 text-[10px] font-bold tracking-[0.2em] text-text-main uppercase transition-colors hover:border-primary hover:text-primary"
+                  >
+                    <RotateCcw size={14} />
+                    RESET
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeletePlan(p.id)}
+                    className="flex min-h-11 items-center justify-center gap-2 border border-danger/70 px-3 py-2 text-[10px] font-bold tracking-[0.2em] text-danger uppercase transition-colors hover:border-danger hover:bg-danger hover:text-black"
+                  >
+                    <Trash2 size={14} />
+                    DELETE
+                  </button>
                 </div>
-                {p.id === activePlanId && <Check size={20} className="text-primary" />}
-              </button>
+              </div>
             ))}
           </div>
         </section>
@@ -453,7 +526,7 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, dayCounter }: {
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3">
-            {days.map((day, i) => {
+            {PLAN_DAYS.map((day, i) => {
               const item = activePlan.schedule[day];
               const isToday = day === todayName;
               return (
@@ -502,23 +575,25 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, dayCounter }: {
 const CreatePlan = ({
   onSave,
   existingExercises,
+  plans,
 }: {
-  onSave: (plan: TrainingPlan, exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>) => void,
+  onSave: (
+    plan: TrainingPlan,
+    exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>,
+    mode: 'create' | 'edit'
+  ) => void,
+  plans: TrainingPlan[],
   existingExercises: PlanExerciseOption[]
 }) => {
   const navigate = useNavigate();
-  const [name, setName] = useState('');
-  const [duration, setDuration] = useState(4);
-  const [schedule, setSchedule] = useState<{ [key: string]: { type: 'workout' | 'rest', exercises: string[], description: string } }>({
-    "MON": { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
-    "TUE": { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
-    "WED": { type: 'rest', exercises: [], description: 'RECOVERY & MOBILITY' },
-    "THU": { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
-    "FRI": { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' },
-    "SAT": { type: 'rest', exercises: [], description: 'ACTIVE RECOVERY' },
-    "SUN": { type: 'rest', exercises: [], description: 'REST DAY' },
-  });
-  const [autoIncrement, setAutoIncrement] = useState(false);
+  const location = useLocation();
+  const editPlanId = new URLSearchParams(location.search).get('edit');
+  const planToEdit = plans.find((plan) => plan.id === editPlanId);
+  const isEditing = Boolean(planToEdit);
+  const [name, setName] = useState(() => planToEdit?.name ?? '');
+  const [duration, setDuration] = useState(() => planToEdit?.durationWeeks ?? 4);
+  const [schedule, setSchedule] = useState<Record<string, PlanEditorDay>>(() => createPlanEditorSchedule(planToEdit));
+  const [autoIncrement, setAutoIncrement] = useState(() => planToEdit?.advanced?.autoIncrement ?? false);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [workoutInput, setWorkoutInput] = useState('');
   const [selectedPrimaryMuscle, setSelectedPrimaryMuscle] = useState<PrimaryMuscleGroup>(DEFAULT_PRIMARY_MUSCLE_GROUP);
@@ -530,6 +605,21 @@ const CreatePlan = ({
       }, {})
   );
   const workoutSuggestions = getPlanExerciseSuggestions(existingExercises, workoutInput);
+
+  useEffect(() => {
+    if (editPlanId && !planToEdit) {
+      navigate('/plans', { replace: true });
+      return;
+    }
+
+    setName(planToEdit?.name ?? '');
+    setDuration(planToEdit?.durationWeeks ?? 4);
+    setSchedule(createPlanEditorSchedule(planToEdit));
+    setAutoIncrement(planToEdit?.advanced?.autoIncrement ?? false);
+    setEditingDay(null);
+    setWorkoutInput('');
+    setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
+  }, [editPlanId, navigate, planToEdit]);
 
   const handleAddWorkout = (day: string, value = workoutInput) => {
     const draft = buildPlanExerciseDraft(existingExercises, value, selectedPrimaryMuscle);
@@ -556,17 +646,17 @@ const CreatePlan = ({
   const handleSave = () => {
     if (!name) return alert("PLEASE ENTER A PLAN NAME");
     const newPlan: TrainingPlan = {
-      id: createId(),
+      id: planToEdit?.id ?? createId(),
       name: name.toUpperCase(),
       durationWeeks: duration,
-      currentWeek: 1,
-      currentDay: 1,
+      currentWeek: planToEdit?.currentWeek ?? 1,
+      currentDay: planToEdit?.currentDay ?? 1,
       schedule,
       advanced: {
         autoIncrement
       }
     };
-    onSave(newPlan, exercisePrimaryMuscles);
+    onSave(newPlan, exercisePrimaryMuscles, planToEdit ? 'edit' : 'create');
     navigate('/plans');
   };
 
@@ -582,7 +672,7 @@ const CreatePlan = ({
           <button onClick={() => navigate(-1)} className="text-primary hover:bg-primary hover:text-black transition-colors p-1">
             <Plus className="rotate-45" size={24} />
           </button>
-          <h1 className="font-display font-black italic tracking-tighter text-primary text-xl uppercase">NEW PLAN</h1>
+          <h1 className="font-display font-black italic tracking-tighter text-primary text-xl uppercase">{isEditing ? 'EDIT PLAN' : 'NEW PLAN'}</h1>
         </div>
         <button 
           onClick={handleSave}
@@ -986,6 +1076,11 @@ export default function App() {
   useEffect(() => { localStorage.setItem('workout_plans', JSON.stringify(plans)); }, [plans]);
   useEffect(() => { if (activePlanId) localStorage.setItem('workout_activePlanId', activePlanId); else localStorage.removeItem('workout_activePlanId'); }, [activePlanId]);
   useEffect(() => { localStorage.setItem('workout_settings', JSON.stringify(settings)); }, [settings]);
+  useEffect(() => {
+    if (activePlanId && !plans.some((plan) => plan.id === activePlanId)) {
+      setActivePlanId(null);
+    }
+  }, [activePlanId, plans]);
 
   const handleToggleUnit = () => {
     const newUnit = settings.unit === 'lbs' ? 'kg' : 'lbs';
@@ -1052,10 +1147,23 @@ export default function App() {
 
   const handleSavePlan = (
     newPlan: TrainingPlan,
-    exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>
+    exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>,
+    mode: 'create' | 'edit'
   ) => {
-    setPlans(prev => [...prev, newPlan]);
-    if (!activePlanId) {
+    setPlans(prev => {
+      if (mode === 'edit') {
+        const existingPlan = prev.find((plan) => plan.id === newPlan.id);
+        if (!existingPlan) {
+          return [...prev, newPlan];
+        }
+
+        return replacePlanById(prev, mergePlanEdits(existingPlan, newPlan));
+      }
+
+      return [...prev, newPlan];
+    });
+
+    if (mode === 'create' && !activePlanId) {
       setActivePlanId(newPlan.id);
     }
     
@@ -1076,7 +1184,7 @@ export default function App() {
             id: createId(),
             name: name,
             primaryMuscle:
-              exercisePrimaryMuscles[name] ?? DEFAULT_PRIMARY_MUSCLE_GROUP,
+              exercisePrimaryMuscles[name.toUpperCase()] ?? DEFAULT_PRIMARY_MUSCLE_GROUP,
             sets: 3,
             reps: "8-15",
             logs: []
@@ -1085,6 +1193,38 @@ export default function App() {
       });
       return [...prev, ...toAdd];
     });
+  };
+
+  const handleRestartPlan = (planId: string) => {
+    const plan = plans.find((candidate) => candidate.id === planId);
+    if (!plan) {
+      return;
+    }
+
+    if (!window.confirm(`RESTART ${plan.name} FROM WEEK 1 / DAY 1?`)) {
+      return;
+    }
+
+    setPlans((prev) =>
+      prev.map((candidate) =>
+        candidate.id === planId ? restartPlanProgress(candidate) : candidate
+      )
+    );
+  };
+
+  const handleDeletePlan = (planId: string) => {
+    const plan = plans.find((candidate) => candidate.id === planId);
+    if (!plan) {
+      return;
+    }
+
+    if (!window.confirm(`DELETE ${plan.name}? THIS CANNOT BE UNDONE.`)) {
+      return;
+    }
+
+    const result = deletePlanById(plans, planId, activePlanId);
+    setPlans(result.plans);
+    setActivePlanId(result.activePlanId);
   };
 
   const handleCompleteWorkout = () => {
@@ -1177,8 +1317,7 @@ export default function App() {
   const planIsComplete = activePlan ? isPlanComplete(activePlan) : false;
   const activePlanProgress = activePlan ? getPlanProgressSnapshot(activePlan) : null;
   const dayCounter = activePlanProgress?.displayDay || 1;
-  const DAYS_MAP = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
-  const todayName = DAYS_MAP[(dayCounter - 1) % 7];
+  const todayName = PLAN_DAYS[(dayCounter - 1) % 7];
   const currentWeek = activePlanProgress?.displayWeek ?? Math.ceil(dayCounter / 7);
   const todaySchedule = activePlan?.schedule[todayName];
   
@@ -1255,6 +1394,8 @@ export default function App() {
               plans={plans} 
               activePlanId={activePlanId} 
               onSelectPlan={setActivePlanId} 
+              onRestartPlan={handleRestartPlan}
+              onDeletePlan={handleDeletePlan}
               dayCounter={dayCounter}
             />
           } />
@@ -1263,6 +1404,7 @@ export default function App() {
             element={
               <CreatePlan
                 onSave={handleSavePlan}
+                plans={plans}
                 existingExercises={Array.from(
                   exercises.reduce((accumulator, exercise) => {
                     const normalizedName = exercise.name.toUpperCase();

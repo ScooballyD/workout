@@ -371,3 +371,74 @@ These changes are safe to re-run because the filter state is transient UI state 
 Implemented multi-select PR Vault filters without adding dependencies. The shared helper now keeps the filter list data-driven from PR data, supports combined workout selections, and treats `ALL` as a select-all or clear-all convenience toggle. The page now keeps per-chip visual state clear on mobile and desktop, starts with all available workouts selected, and shows the empty state when the user clears every workout filter.
 
 Verification completed with `npm test -- src/lib/pr-vault.test.ts`, `npm run lint`, `npm run build`, and manual preview checks for one selected filter, multiple selected filters, `ALL` selecting every workout, and `ALL` clearing every workout. One cleanup item remains external to the code changes: the preview `node` listener on port `4173` could not be stopped from the sandboxed session because of process permissions.
+
+---
+
+# Extend plan management on the Plans screen
+
+This is a living execution plan. Keep `Progress`, `Decision Log`, `Surprises & Discoveries`, and `Outcomes & Retrospective` current as work proceeds.
+
+## Purpose / User Outcome
+
+Users can manage existing plans from the `YOUR PROTOCOLS` section on the Plans screen instead of only activating one. Each saved plan should now support `Edit`, `Restart`, and `Delete` with mobile-friendly controls and safe behavior. Editing must update the existing plan in place instead of creating a duplicate, restarting must reset progress to week 1/day 1 without changing the plan structure, and deleting must remove the plan from storage while leaving the app in a valid state if the deleted plan was active.
+
+## Context and Orientation
+
+[`src/App.tsx`](C:\Users\carve\OneDrive\Projects\workout\src\App.tsx) currently owns both the Plans screen UI and all plan state mutations. The `TrainingPlans` component renders the `YOUR PROTOCOLS` list and currently only exposes selection. The `CreatePlan` component is the existing full-screen plan editor used for creation and already holds the schedule-editing UI, so it is the natural place to reuse for editing an existing plan. [`src/lib/backup.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\backup.ts) is the compatibility boundary for stored plans and imported backups, so the stored `TrainingPlan` shape should remain unchanged. [`src/lib/plan-progress.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\plan-progress.ts) contains the existing progress rules and is the right model reference for restart behavior. New pure helper logic for plan mutations can live in [`src/lib/plans.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\plans.ts) with focused regression coverage in [`src/lib/plans.test.ts`](C:\Users\carve\OneDrive\Projects\workout\src\lib\plans.test.ts).
+
+## Progress
+
+- [x] 2026-04-02 23:11 America/Chicago: Reviewed `App.tsx`, `backup.ts`, and `plan-progress.ts` to map current plan creation, selection, persistence, and advancement behavior.
+- [x] 2026-04-02 23:23 America/Chicago: Added failing tests for restart, in-place replacement, edit-progress clamping, and active/non-active deletion behavior in `src/lib/plans.test.ts`, then verified the missing helper export/module failures before implementation.
+- [x] 2026-04-02 23:34 America/Chicago: Implemented `src/lib/plans.ts` and rewired `src/App.tsx` so create/edit/restart/delete flows use pure helpers instead of ad-hoc array mutations.
+- [x] 2026-04-02 23:46 America/Chicago: Updated the `YOUR PROTOCOLS` cards with touch-friendly `EDIT`, `RESET`, and `DELETE` actions and reused the existing plan editor for in-place editing via `?edit=<planId>`.
+- [x] 2026-04-02 22:43 America/Chicago: Ran `npm run lint` and `npm run build`, then manually validated edit persistence, restart reset, deletion of active/non-active plans, and post-delete plan selection in preview with Playwright.
+
+## Decision Log
+
+- Decision: Keep the persisted `TrainingPlan` schema unchanged and add pure helper functions around the existing array state instead of introducing a migration.
+  Rationale: The requested behavior can be delivered by changing mutation semantics and UI affordances only, which preserves backward compatibility for localStorage and backup import/export.
+  Date/Author: 2026-04-02 / Codex
+- Decision: Reuse the existing create-plan route for editing by loading the target plan from the `?edit=<planId>` query string instead of introducing a second editor component.
+  Rationale: The current editor already contains the full mobile plan-building workflow. Reusing it avoids duplicate UI logic while still making edit mode explicit and direct-linkable.
+  Date/Author: 2026-04-02 / Codex
+- Decision: Keep delete behavior conservative by clearing `activePlanId` when the deleted plan was active, rather than auto-selecting a replacement plan.
+  Rationale: The app already has a clear no-active-plan state, and automatically switching the user to another protocol could be surprising after a destructive action.
+  Date/Author: 2026-04-02 / Codex
+
+## Surprises & Discoveries
+
+- Observation: `CreatePlan` currently always generates a fresh `id` and `handleSavePlan` always appends, which guarantees accidental duplication if reused for editing without new save semantics.
+  Evidence: `CreatePlan.handleSave` and `handleSavePlan` in `src/App.tsx`.
+- Observation: The app already treats `activePlanId` as nullable and falls back to the “NO PLAN SELECTED” state cleanly when there is no active plan.
+  Evidence: root route rendering logic in `src/App.tsx`.
+- Observation: Restart behavior only needs to touch `currentWeek` and `currentDay`; workout logs live on `Exercise` records, not inside `TrainingPlan`.
+  Evidence: `TrainingPlan` in `src/types.ts` and `advancePlanProgress` in `src/lib/plan-progress.ts`.
+- Observation: Preview on port `4173` was already running when manual validation started, so the verification reused the existing server instead of killing processes from the sandbox.
+  Evidence: `vite preview` startup returned `Port 4173 is already in use`, followed by a successful `STATUS=200` response from `http://127.0.0.1:4173`.
+
+## Plan of Work
+
+First, add a small pure helper module for plan mutations so restart, update, and delete behavior can be tested independently of React rendering. The tests should prove that restarting a plan resets progress counters without changing schedule or metadata, that saving an edited plan replaces the matching plan by `id` instead of appending a duplicate, and that deleting a plan returns a valid next `activePlanId` when the removed plan was active or leaves other plans untouched when it was not. After the helper contract is pinned down, update `App.tsx` to use those helpers, support an edit-mode `CreatePlan` flow seeded from an existing plan, and keep exercise creation logic compatible with both brand-new and edited plans. Finally, update the `YOUR PROTOCOLS` cards so each plan has clear tap targets for select, edit, restart, and delete, with lightweight confirmation UI for destructive actions that works well on small screens.
+
+## Validation and Acceptance
+
+- Run `npm test -- src/lib/plans.test.ts` and confirm the new tests fail before implementation, then pass after the helper logic is added.
+- Run `npm run lint` and confirm there are no TypeScript errors.
+- Run `npm run build` and confirm the production bundle succeeds.
+- Manually confirm in the app that:
+  - editing an existing plan persists changes without creating a duplicate
+  - restarting a plan resets it to week 1/day 1
+  - deleting a non-active plan removes it cleanly
+  - deleting the active plan leaves the app in a valid no-active-plan or fallback-active-plan state
+  - selecting a remaining plan still works after delete/restart/edit operations
+
+## Idempotence and Recovery
+
+These changes are safe to retry because they do not change the serialized plan schema in storage. If a regression appears, revert the new helper module, its tests, and the related `App.tsx` edits together so the UI and mutation logic stay aligned, then rerun `npm run lint` and `npm run build` before retrying. Stored plans should remain readable throughout because `backup.ts` validation is not being tightened.
+
+## Outcomes & Retrospective
+
+Implemented plan management actions on the Plans screen without changing the stored `TrainingPlan` schema. The `YOUR PROTOCOLS` cards now expose mobile-friendly `EDIT`, `RESET`, and `DELETE` buttons; the editor route can load an existing plan in place; restart resets progress to week 1/day 1; delete removes the plan cleanly and clears the active plan when necessary; and plan selection continues to work after those actions.
+
+Verification is complete for the requested scope. The work added regression coverage in `src/lib/plans.test.ts`, passed `npm run lint` and `npm run build`, and manual preview checks confirmed edit persistence without duplication, restart reset behavior, non-active delete behavior, active delete fallback to a valid no-active state, and successful selection of a remaining plan afterward.
