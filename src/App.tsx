@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -36,6 +36,13 @@ import {
 } from './lib/backup';
 import { createId } from './lib/id';
 import { getNextIncompleteSetIndex } from './lib/exercise-progress';
+import {
+  applyRepsChangeToInputs,
+  applyWeightChangeToInputs,
+  createExerciseLogInputValues,
+  syncExerciseLogInputValues,
+  type ExerciseLogInputValue,
+} from './lib/exercise-log-inputs';
 import { getNextSetInfo } from './lib/next-set-info';
 import {
   addExerciseToPlanDay,
@@ -225,63 +232,31 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
 
   const autoIncrement = activePlan?.advanced?.autoIncrement || false;
   const currentWeek = activePlan?.currentWeek || 1;
-
-  const getDefaultForSet = (ex: Exercise, i: number) => {
-    let weight = ex.recommended?.weight || 0;
-    let reps = ex.recommended?.reps || 0;
-    const lastLog = ex.lastLogs?.[i];
-    if (lastLog?.completed) {
-      weight = lastLog.weight;
-      reps = lastLog.reps + (autoIncrement ? 1 : 0);
-    } else if (autoIncrement && currentWeek > 1) {
-      reps += (currentWeek - 1);
-    }
-    return { weight, reps };
-  };
-
-  const [inputValues, setInputValues] = useState<{ weight: number; reps: number }[]>(
-    () => exercise ? Array.from({ length: exercise.sets }, (_, i) => getDefaultForSet(exercise, i)) : []
+  const [inputValues, setInputValues] = useState<ExerciseLogInputValue[]>(
+    () => exercise ? createExerciseLogInputValues(exercise, { autoIncrement, currentWeek }) : []
   );
+  const previousExerciseIdRef = useRef<string | undefined>(exercise?.id);
 
   // Keep inputValues in sync when the selected exercise or its defaults change.
   useEffect(() => {
     if (!exercise) return;
-    setInputValues((prev: { weight: number; reps: number }[]) => Array.from({ length: exercise.sets }, (_, i) => {
-      const log = exercise.logs[i];
-      if (log?.completed) {
-        return { weight: log.weight, reps: log.reps };
-      }
-
-      const previous = prev[i];
-      const lastLog = exercise.lastLogs?.[i];
-      const recommendedWeight = exercise.recommended?.weight || 0;
-
-      const shouldReusePrevious =
-        previous &&
-        exercise.id === id &&
-        !lastLog?.completed &&
-        previous.weight !== recommendedWeight;
-
-      return shouldReusePrevious ? previous : getDefaultForSet(exercise, i);
-    }));
-  }, [exercise, id, autoIncrement, currentWeek]);
+    const shouldResetDrafts = previousExerciseIdRef.current !== exercise.id;
+    setInputValues((prev) =>
+      syncExerciseLogInputValues(
+        prev,
+        exercise,
+        { autoIncrement, currentWeek },
+        shouldResetDrafts
+      )
+    );
+    previousExerciseIdRef.current = exercise.id;
+  }, [exercise, autoIncrement, currentWeek]);
 
   if (!exercise) return <div>Exercise not found</div>;
   const nextIncompleteSetIndex = getNextIncompleteSetIndex(exercise.logs, exercise.sets);
 
   const handleWeightChange = (i: number, value: number) => {
-    setInputValues((prev: { weight: number; reps: number }[]) => {
-      const next = [...prev];
-      next[i] = { ...next[i], weight: value };
-      if (settings.matchWeight) {
-        for (let j = i + 1; j < exercise.sets; j++) {
-          if (!exercise.logs[j]?.completed) {
-            next[j] = { ...next[j], weight: value };
-          }
-        }
-      }
-      return next;
-    });
+    setInputValues((prev) => applyWeightChangeToInputs(prev, exercise, i, value, settings.matchWeight));
   };
 
   return (
@@ -346,11 +321,9 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
                 type="number"
                 value={currentReps}
                 disabled={isCompleted}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputValues((prev: { weight: number; reps: number }[]) => {
-                  const next = [...prev];
-                  next[i] = { ...next[i], reps: Number(e.target.value) };
-                  return next;
-                })}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setInputValues((prev) => applyRepsChangeToInputs(prev, i, Number(e.target.value)))
+                }
               />
               <button
                 onClick={() => {
