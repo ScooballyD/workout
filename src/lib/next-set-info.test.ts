@@ -8,6 +8,7 @@ test('getNextSetInfo keeps the set index null when every set is complete', () =>
   const exercise: Exercise = {
     id: 'bench',
     name: 'Bench Press',
+    primaryMuscle: 'Chest',
     sets: 3,
     reps: '5',
     logs: [

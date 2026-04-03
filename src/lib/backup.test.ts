@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DEFAULT_SETTINGS,
+  normalizeSettings,
+  normalizeExercisesForStorage,
+  parseStoredValue,
   parseImportedBackupFile,
   validateImportedBackup,
 } from './backup.ts';
@@ -13,6 +17,7 @@ const createValidBackup = () => ({
     {
       id: 'ex-1',
       name: 'BENCH PRESS',
+      primaryMuscle: 'Chest',
       sets: 3,
       reps: '5',
       logs: [],
@@ -66,6 +71,7 @@ test('validateImportedBackup accepts older backup shapes with omitted optional f
   const legacyBackup = createValidBackup();
   delete legacyBackup.prs;
   delete legacyBackup.activePlanId;
+  delete legacyBackup.exercises[0].primaryMuscle;
 
   const result = validateImportedBackup(legacyBackup);
 
@@ -76,6 +82,7 @@ test('validateImportedBackup accepts older backup shapes with omitted optional f
 
   assert.deepEqual(result.value.prs, []);
   assert.equal(result.value.activePlanId, null);
+  assert.equal(result.value.exercises[0].primaryMuscle, 'Other');
 });
 
 test('validateImportedBackup rejects malformed activePlanId values', () => {
@@ -102,4 +109,45 @@ test('validateImportedBackup clears activePlanId values that do not match any im
   }
 
   assert.equal(result.value.activePlanId, null);
+});
+
+test('DEFAULT_SETTINGS enables matchWeight for fresh settings state', () => {
+  assert.equal(DEFAULT_SETTINGS.matchWeight, true);
+});
+
+test('parseStoredValue preserves an existing saved matchWeight false preference', () => {
+  const storedSettings = JSON.stringify({
+    unit: 'lbs',
+    hapticFeedback: true,
+    matchWeight: false,
+  });
+
+  const result = parseStoredValue(
+    storedSettings,
+    normalizeSettings,
+    DEFAULT_SETTINGS
+  );
+
+  assert.equal(result.matchWeight, false);
+});
+
+test('parseStoredValue defaults legacy stored exercises without primaryMuscle', () => {
+  const storedExercises = JSON.stringify([
+    {
+      id: 'ex-1',
+      name: 'PULL UP',
+      sets: 3,
+      reps: '6-8',
+      logs: [],
+    },
+  ]);
+
+  const result = parseStoredValue(
+    storedExercises,
+    normalizeExercisesForStorage,
+    []
+  );
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].primaryMuscle, 'Other');
 });

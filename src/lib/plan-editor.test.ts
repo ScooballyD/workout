@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   addExerciseToPlanDay,
+  buildPlanExerciseDraft,
   getPlanExerciseSuggestions,
   removeExerciseFromPlanDay,
 } from './plan-editor.ts';
@@ -35,11 +36,18 @@ test('addExerciseToPlanDay accepts an autocomplete suggestion value without extr
 
 test('getPlanExerciseSuggestions excludes the exact match while returning partial matches', () => {
   const suggestions = getPlanExerciseSuggestions(
-    ['Bench Press', 'Close Grip Bench', 'Squat'],
+    [
+      { name: 'Bench Press', primaryMuscle: 'Chest' },
+      { name: 'Close Grip Bench', primaryMuscle: 'Triceps' },
+      { name: 'Squat', primaryMuscle: 'Quads' },
+    ],
     'bench'
   );
 
-  assert.deepEqual(suggestions, ['Bench Press', 'Close Grip Bench']);
+  assert.deepEqual(suggestions, [
+    { name: 'Bench Press', primaryMuscle: 'Chest' },
+    { name: 'Close Grip Bench', primaryMuscle: 'Triceps' },
+  ]);
 });
 
 test('removeExerciseFromPlanDay keeps the description in sync after removing a chip', () => {
@@ -56,5 +64,39 @@ test('removeExerciseFromPlanDay keeps the description in sync after removing a c
     type: 'workout',
     exercises: ['BENCH'],
     description: 'BENCH',
+  });
+});
+
+test('buildPlanExerciseDraft uses the selected tag for a new manual exercise', () => {
+  const draft = buildPlanExerciseDraft([], ' Cable Fly ', 'Chest');
+
+  assert.deepEqual(draft, {
+    name: 'CABLE FLY',
+    primaryMuscle: 'Chest',
+  });
+});
+
+test('buildPlanExerciseDraft reuses the stored tag for an exact existing exercise match', () => {
+  const draft = buildPlanExerciseDraft(
+    [
+      { name: 'Bench Press', primaryMuscle: 'Chest' },
+      { name: 'Barbell Row', primaryMuscle: 'Back' },
+    ],
+    ' bench press ',
+    'Triceps'
+  );
+
+  assert.deepEqual(draft, {
+    name: 'BENCH PRESS',
+    primaryMuscle: 'Chest',
+  });
+});
+
+test('buildPlanExerciseDraft falls back to Other when no tag is provided', () => {
+  const draft = buildPlanExerciseDraft([], 'Ab Wheel');
+
+  assert.deepEqual(draft, {
+    name: 'AB WHEEL',
+    primaryMuscle: 'Other',
   });
 });

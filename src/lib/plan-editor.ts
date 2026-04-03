@@ -1,7 +1,22 @@
+import {
+  DEFAULT_PRIMARY_MUSCLE_GROUP,
+  type PrimaryMuscleGroup,
+} from './exercise-tags.ts';
+
 export interface PlanEditorDay {
   type: 'workout' | 'rest';
   exercises: string[];
   description: string;
+}
+
+export interface PlanExerciseOption {
+  name: string;
+  primaryMuscle: PrimaryMuscleGroup;
+}
+
+export interface PlanExerciseDraft {
+  name: string;
+  primaryMuscle: PrimaryMuscleGroup;
 }
 
 const DEFAULT_WORKOUT_DESCRIPTION = 'ASSIGN ROUTINE';
@@ -37,7 +52,27 @@ export const removeExerciseFromPlanDay = (day: PlanEditorDay, index: number): Pl
   };
 };
 
-export const getPlanExerciseSuggestions = (existingExercises: string[], value: string) => {
+export const buildPlanExerciseDraft = (
+  existingExercises: PlanExerciseOption[],
+  value: string,
+  primaryMuscle: PrimaryMuscleGroup = DEFAULT_PRIMARY_MUSCLE_GROUP
+): PlanExerciseDraft | null => {
+  const name = normalizePlanExerciseName(value);
+  if (!name) {
+    return null;
+  }
+
+  const existingExercise = existingExercises.find(
+    (exercise) => normalizePlanExerciseName(exercise.name) === name
+  );
+
+  return {
+    name,
+    primaryMuscle: existingExercise?.primaryMuscle ?? primaryMuscle,
+  };
+};
+
+export const getPlanExerciseSuggestions = (existingExercises: PlanExerciseOption[], value: string) => {
   const normalizedInput = normalizePlanExerciseName(value);
 
   if (!normalizedInput) {
@@ -45,7 +80,7 @@ export const getPlanExerciseSuggestions = (existingExercises: string[], value: s
   }
 
   return existingExercises.filter((exercise) => {
-    const normalizedExercise = exercise.toUpperCase();
+    const normalizedExercise = normalizePlanExerciseName(exercise.name);
     return (
       normalizedExercise.includes(normalizedInput) &&
       normalizedExercise !== normalizedInput

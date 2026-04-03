@@ -6,3 +6,6 @@ dist/
 .edge-cdp-profile/
 .tmp-playwright/
 .edge-cdp-profile/
+preview.stdout.log
+preview.stderr.log
+output/

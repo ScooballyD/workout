@@ -7,6 +7,7 @@ import { completeWorkoutExercises } from './workout-completion.ts';
 const createExercise = (overrides: Partial<Exercise> = {}): Exercise => ({
   id: 'exercise-1',
   name: 'BENCH PRESS',
+  primaryMuscle: 'Chest',
   sets: 3,
   reps: '5',
   logs: [],

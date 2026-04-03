@@ -39,13 +39,20 @@ import { getNextIncompleteSetIndex } from './lib/exercise-progress';
 import { getNextSetInfo } from './lib/next-set-info';
 import {
   addExerciseToPlanDay,
+  buildPlanExerciseDraft,
   getPlanExerciseSuggestions,
   removeExerciseFromPlanDay,
+  type PlanExerciseOption,
 } from './lib/plan-editor';
 import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
 import { completeWorkoutExercises } from './lib/workout-completion';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
+import {
+  DEFAULT_PRIMARY_MUSCLE_GROUP,
+  PRIMARY_MUSCLE_GROUPS,
+  type PrimaryMuscleGroup,
+} from './lib/exercise-tags.ts';
 
 const PRVaultPage = React.lazy(() => import('./pages/PRVault'));
 
@@ -519,7 +526,13 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, dayCounter }: {
   );
 };
 
-const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan) => void, existingExercises: string[] }) => {
+const CreatePlan = ({
+  onSave,
+  existingExercises,
+}: {
+  onSave: (plan: TrainingPlan, exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>) => void,
+  existingExercises: PlanExerciseOption[]
+}) => {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [duration, setDuration] = useState(4);
@@ -535,20 +548,36 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
   const [autoIncrement, setAutoIncrement] = useState(false);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [workoutInput, setWorkoutInput] = useState('');
+  const [selectedPrimaryMuscle, setSelectedPrimaryMuscle] = useState<PrimaryMuscleGroup>(DEFAULT_PRIMARY_MUSCLE_GROUP);
+  const [exercisePrimaryMuscles, setExercisePrimaryMuscles] = useState<Record<string, PrimaryMuscleGroup>>(
+    () =>
+      existingExercises.reduce<Record<string, PrimaryMuscleGroup>>((accumulator, exercise) => {
+        accumulator[exercise.name.toUpperCase()] = exercise.primaryMuscle;
+        return accumulator;
+      }, {})
+  );
   const workoutSuggestions = getPlanExerciseSuggestions(existingExercises, workoutInput);
 
   const handleAddWorkout = (day: string, value = workoutInput) => {
-    if (!value.trim()) {
+    const draft = buildPlanExerciseDraft(existingExercises, value, selectedPrimaryMuscle);
+    if (!draft) {
       setEditingDay(null);
       setWorkoutInput('');
+      setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
       return;
     }
+
     setSchedule(prev => ({
       ...prev,
-      [day]: addExerciseToPlanDay(prev[day], value)
+      [day]: addExerciseToPlanDay(prev[day], draft.name)
+    }));
+    setExercisePrimaryMuscles(prev => ({
+      ...prev,
+      [draft.name]: draft.primaryMuscle,
     }));
     setEditingDay(null);
     setWorkoutInput('');
+    setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
   };
 
   const handleSave = () => {
@@ -564,20 +593,8 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
         autoIncrement
       }
     };
-    onSave(newPlan);
+    onSave(newPlan, exercisePrimaryMuscles);
     navigate('/plans');
-  };
-
-  const toggleDay = (day: string) => {
-    setSchedule(prev => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        type: prev[day].type === 'workout' ? 'rest' : 'workout',
-        exercises: [],
-        description: prev[day].type === 'workout' ? 'REST DAY' : 'ASSIGN ROUTINE'
-      }
-    }));
   };
 
   return (
@@ -738,18 +755,34 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
                               <Plus className="rotate-45" size={14} />
                             </button>
                           </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-muted uppercase tracking-widest">TAG</span>
+                            <select
+                              aria-label="Primary muscle group"
+                              className="flex-1 bg-black border border-muted text-[10px] px-2 py-2 text-text-main focus:outline-none focus:border-primary uppercase font-mono"
+                              value={selectedPrimaryMuscle}
+                              onChange={(e) => setSelectedPrimaryMuscle(e.target.value as PrimaryMuscleGroup)}
+                            >
+                              {PRIMARY_MUSCLE_GROUPS.map((muscle) => (
+                                <option key={muscle} value={muscle}>
+                                  {muscle}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                           {workoutSuggestions.length > 0 && (
                             <div className="absolute top-full left-0 mt-1 w-full bg-surface border-2 border-primary z-50 max-h-32 overflow-y-auto">
                               {workoutSuggestions.map(ex => (
                                 <button
-                                  key={ex}
+                                  key={ex.name}
                                   className="w-full text-left px-2 py-1 text-[10px] font-mono text-primary hover:bg-primary hover:text-black uppercase"
                                   type="button"
                                   onClick={() => {
-                                    handleAddWorkout(day, ex);
+                                    handleAddWorkout(day, ex.name);
                                   }}
                                 >
-                                  {ex}
+                                  <span>{ex.name}</span>
+                                  <span className="ml-2 text-[9px] opacity-70">{ex.primaryMuscle}</span>
                                 </button>
                               ))}
                             </div>
@@ -757,7 +790,11 @@ const CreatePlan = ({ onSave, existingExercises }: { onSave: (plan: TrainingPlan
                         </div>
                       ) : (
                         <button 
-                          onClick={() => { setEditingDay(day); setWorkoutInput(''); }}
+                          onClick={() => {
+                            setEditingDay(day);
+                            setWorkoutInput('');
+                            setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
+                          }}
                           className="flex items-center gap-2 text-primary text-xs font-bold tracking-widest group"
                         >
                           <Plus size={16} />
@@ -1040,7 +1077,10 @@ export default function App() {
     }));
   };
 
-  const handleSavePlan = (newPlan: TrainingPlan) => {
+  const handleSavePlan = (
+    newPlan: TrainingPlan,
+    exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>
+  ) => {
     setPlans(prev => [...prev, newPlan]);
     if (!activePlanId) {
       setActivePlanId(newPlan.id);
@@ -1062,6 +1102,8 @@ export default function App() {
           toAdd.push({
             id: createId(),
             name: name,
+            primaryMuscle:
+              exercisePrimaryMuscles[name] ?? DEFAULT_PRIMARY_MUSCLE_GROUP,
             sets: 3,
             reps: "8-15",
             logs: []
@@ -1243,7 +1285,26 @@ export default function App() {
               dayCounter={dayCounter}
             />
           } />
-          <Route path="/create-plan" element={<CreatePlan onSave={handleSavePlan} existingExercises={Array.from(new Set(exercises.map(e => e.name)))} />} />
+          <Route
+            path="/create-plan"
+            element={
+              <CreatePlan
+                onSave={handleSavePlan}
+                existingExercises={Array.from(
+                  exercises.reduce((accumulator, exercise) => {
+                    const normalizedName = exercise.name.toUpperCase();
+                    if (!accumulator.has(normalizedName)) {
+                      accumulator.set(normalizedName, {
+                        name: exercise.name,
+                        primaryMuscle: exercise.primaryMuscle,
+                      });
+                    }
+                    return accumulator;
+                  }, new Map<string, PlanExerciseOption>()).values()
+                )}
+              />
+            }
+          />
           <Route path="/prs" element={
             <React.Suspense fallback={<div className="flex-1 bg-black" />}>
               <PRVaultPage prs={prs} settings={settings} />

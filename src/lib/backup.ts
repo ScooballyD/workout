@@ -1,9 +1,10 @@
 import type { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types';
+import { normalizePrimaryMuscleGroup } from './exercise-tags.ts';
 
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'lbs',
   hapticFeedback: true,
-  matchWeight: false,
+  matchWeight: true,
 };
 
 export type ImportedBackupData = {
@@ -89,6 +90,7 @@ const normalizeExercise = (value: unknown): Exercise | null => {
   const exercise: Exercise = {
     id: value.id,
     name: value.name,
+    primaryMuscle: normalizePrimaryMuscleGroup(value.primaryMuscle),
     sets,
     reps: value.reps,
     logs,

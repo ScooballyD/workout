@@ -1,14 +1,35 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Trophy } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { Header } from '../components/Header';
+import {
+  ALL_PR_FILTER,
+  filterPrsByExercise,
+  getPrFilterOptions,
+  togglePrExerciseFilter,
+} from '../lib/pr-vault';
 import { cn } from '../lib/utils';
 import type { PR, Settings } from '../types';
 
 export default function PRVault({ prs, settings }: { prs: PR[]; settings: Settings }) {
-  const [filter, setFilter] = useState('ALL');
-  const filteredPrs = filter === 'ALL' ? prs : prs.filter(p => p.exerciseName.includes(filter));
+  const filters = getPrFilterOptions(prs);
+  const workoutFilters = filters.filter(filter => filter !== ALL_PR_FILTER);
+  const [selectedFilters, setSelectedFilters] = useState<string[]>(() => workoutFilters);
+  const filteredPrs = filterPrsByExercise(prs, selectedFilters);
+  const areAllFiltersSelected = workoutFilters.length > 0 && selectedFilters.length === workoutFilters.length;
+
+  useEffect(() => {
+    setSelectedFilters(current => {
+      const next = workoutFilters.filter(filter => current.includes(filter));
+
+      if (next.length === current.length && next.every((filter, index) => filter === current[index])) {
+        return current;
+      }
+
+      return next;
+    });
+  }, [workoutFilters]);
 
   return (
     <motion.div
@@ -20,14 +41,17 @@ export default function PRVault({ prs, settings }: { prs: PR[]; settings: Settin
       <Header title="PR VAULT" />
 
       <div className="px-4 py-6 overflow-x-auto whitespace-nowrap flex gap-4 border-b-2 border-muted">
-        {['ALL', 'SQUAT', 'BENCH', 'DEADLIFT'].map(f => (
+        {filters.map(f => (
           <button
             key={f}
-            onClick={() => setFilter(f)}
+            onClick={() => setSelectedFilters(current => togglePrExerciseFilter(current, f, filters))}
             className={cn(
-              "px-6 py-2 font-display text-xl rounded-sm border-2 transition-none",
-              filter === f ? "bg-primary text-black border-primary shadow-brutal" : "bg-surface text-text-main border-muted hover:border-primary"
+              "px-5 py-2 font-display text-lg sm:text-xl rounded-sm border-2 transition-none min-h-11",
+              (f === ALL_PR_FILTER ? areAllFiltersSelected : selectedFilters.includes(f))
+                ? "bg-primary text-black border-primary shadow-brutal"
+                : "bg-surface text-text-main border-muted hover:border-primary"
             )}
+            aria-pressed={f === ALL_PR_FILTER ? areAllFiltersSelected : selectedFilters.includes(f)}
           >
             {f}
           </button>
