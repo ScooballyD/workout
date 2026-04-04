@@ -4,6 +4,16 @@
 - This project is a Vite + React + TypeScript Progressive Web App intended to work well on a user's phone.
 - Optimize for fast startup, low memory use, responsive interactions, and reliable standalone behavior when installed from a supported mobile browser.
 - Prefer solutions that keep the app lightweight and static-host friendly. Avoid changes that assume a server is available at runtime.
+- New agents should read `agent_docs/project.md` early to get oriented on the app, file layout, persistence model, and current workflow expectations.
+- New agents should also read `agent_docs/codex.md` before changing persistence, plan lifecycle logic, PWA/build config, or shared UI state so they do not repeat known breakages.
+- If you encounter a new repository-specific failure pattern and fix it, update `agent_docs/codex.md` with the issue, failure mode, root cause, safe pattern, and verification notes before finishing.
+
+## Agent Docs
+- `AGENTS.md`: repo rules and workflow expectations.
+- `agent_docs/project.md`: fast orientation to the app, architecture, persistence model, and commands.
+- `agent_docs/codex.md`: durable repo memory about breakages, root causes, and safe implementation patterns.
+- `agent_docs/plans.md`: the standard for writing execution plans on large or risky tasks; it is not a history log.
+- `todo.md`: active and completed task tracking.
 
 ## Dev environment tips
 - Use `npm install` to install dependencies.
@@ -45,9 +55,9 @@
 - Add or update tests if the repository later gains a test runner. For now, do not claim behavior is verified without at least running the available checks.
 
 ## Planning instructions
-- For large, risky, or multi-step tasks, create and maintain an execution plan using `plans.md` at the repo root.
-- Use `plans.md` when the work spans multiple files, changes persisted data or PWA behavior, involves refactoring, or is likely to require handoff between agents.
-- Follow the format and maintenance rules in `plans.md`, and keep the plan current as decisions, progress, and discoveries change.
+- For large, risky, or multi-step tasks, create and maintain an execution plan using `agent_docs/plans.md`.
+- Use `agent_docs/plans.md` when the work spans multiple files, changes persisted data or PWA behavior, involves refactoring, or is likely to require handoff between agents.
+- Follow the format and maintenance rules in `agent_docs/plans.md`, and keep the plan current as decisions, progress, and discoveries change.
 
 ## Change instructions
 - Keep edits incremental and easy to review.
