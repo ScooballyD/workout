@@ -46,6 +46,7 @@ import {
   type ExerciseLogInputValue,
 } from './lib/exercise-log-inputs';
 import { getNextSetInfo } from './lib/next-set-info';
+import { getLocalCalendarDateString } from './lib/local-date';
 import {
   addExerciseToPlanDay,
   buildPlanExerciseDraft,
@@ -731,16 +732,44 @@ const CreatePlan = ({
       </header>
 
       <main className="flex-grow p-4 space-y-8 max-w-2xl mx-auto w-full">
-        <div className="relative h-48 w-full border-2 border-muted overflow-hidden group">
-          <img 
-            alt="Workout gear" 
-            className="w-full h-full object-cover opacity-50 group-hover:scale-105 transition-transform duration-700" 
-            src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=1000&auto=format&fit=crop"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent"></div>
-          <div className="absolute bottom-4 left-4">
-            <p className="text-[48px] font-display font-black tracking-tighter leading-none text-primary uppercase">KINETIC<br/>VOLT</p>
+        <div className="relative overflow-hidden border-2 border-primary bg-[linear-gradient(135deg,rgba(0,255,255,0.18)_0%,rgba(0,0,0,0.92)_42%,rgba(255,255,255,0.06)_100%)] px-6 py-7 sm:px-8 sm:py-8">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(0,255,255,0.25),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.14),transparent_30%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.045)_1px,transparent_1px)] bg-[size:24px_24px] opacity-20" />
+          <div className="absolute -right-10 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full border border-primary/30" />
+          <div className="absolute right-6 top-8 h-24 w-24 rounded-full border-2 border-secondary/40" />
+          <div className="absolute -left-10 bottom-[-2.5rem] h-36 w-36 rounded-full border border-muted/20" />
+          <div className="relative z-10 flex min-h-72 flex-col justify-between gap-8">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] tracking-[0.45em] text-muted uppercase">MEGALIFTS // PLAN BUILDER</p>
+                <h2 className="mt-3 text-[clamp(2.75rem,10vw,5.5rem)] font-display font-black leading-[0.88] tracking-tighter text-text-main uppercase">
+                  BUILD<br />
+                  <span className="text-primary">THE CYCLE</span>
+                </h2>
+              </div>
+              <div className="flex flex-col gap-2 text-right">
+                <span className="rounded-sm border border-primary/50 bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.25em] text-primary">
+                  LOCAL
+                </span>
+                <span className="rounded-sm border border-muted/50 bg-black/40 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.25em] text-muted">
+                  OFFLINE READY
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
+              <p className="max-w-md text-sm leading-relaxed text-text-main/80">
+                Lay out a training block that survives airplane mode, bad reception, and one-handed phone use.
+                No remote assets, no stale branding.
+              </p>
+              <div className="flex items-center justify-between rounded-sm border-2 border-muted/70 bg-black/45 px-4 py-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.35em] text-muted">CURRENT FOCUS</p>
+                  <p className="mt-1 text-lg font-bold uppercase text-text-main">FAST SETUP</p>
+                </div>
+                <ChevronRight size={20} className="text-primary" />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1171,12 +1200,24 @@ export default function App() {
   };
 
   const handleLogSet = (exId: string, setIndex: number, weight: number, reps: number) => {
+    let loggedSet = false;
+
     setExercises(prev => prev.map(ex => {
       if (ex.id !== exId) return ex;
       const newLogs = [...ex.logs];
       newLogs[setIndex] = { weight, reps, completed: true };
+      loggedSet = true;
       return { ...ex, logs: newLogs };
     }));
+
+    if (
+      loggedSet &&
+      settings.hapticFeedback &&
+      typeof navigator !== 'undefined' &&
+      typeof navigator.vibrate === 'function'
+    ) {
+      navigator.vibrate(12);
+    }
   };
 
   const handleUnlogSet = (exId: string, setIndex: number) => {
@@ -1299,7 +1340,7 @@ export default function App() {
     const currentTodaySchedule = currentActivePlan?.schedule[currentTodayName];
     const currentTodayExerciseNames = currentTodaySchedule?.exercises || [];
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalCalendarDateString();
 
     // Update PRs with the highest weight logged today for each exercise
     setPrs(prevPrs => {
@@ -1357,7 +1398,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `workout-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `workout-backup-${getLocalCalendarDateString()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };

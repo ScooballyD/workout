@@ -36,6 +36,7 @@ Primary files often include:
 - The daily workout flow is rendered from the active plan day; ordering and completion state should reflect plan data, not incidental registry order.
 - `src/App.tsx` is integration-heavy. If a UI task also touches persistence or plan lifecycle assumptions, the manager should keep close review on that slice.
 - Mobile clarity matters more than decorative complexity.
+- User-facing same-day stamps and local-date badges should use the shared local-calendar-day helper instead of `toISOString().split('T')[0]`, which can roll over incorrectly for users near local midnight.
 
 ## Anti-Patterns
 
