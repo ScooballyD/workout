@@ -8,4 +8,6 @@ dist/
 .edge-cdp-profile/
 preview.stdout.log
 preview.stderr.log
+build.stdout.log
+build.stderr.log
 output/
