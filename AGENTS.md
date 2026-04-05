@@ -13,6 +13,7 @@
 - `agent_docs/project.md`: fast orientation to the app, architecture, persistence model, and commands.
 - `agent_docs/codex.md`: durable repo memory about breakages, root causes, and safe implementation patterns.
 - `agent_docs/plans.md`: the standard for writing execution plans on large or risky tasks; it is not a history log.
+- `agent_docs/task_master.md`: manager-agent guidance for triage, delegation, ownership boundaries, and integration across specialist agents.
 - `todo.md`: active and completed task tracking.
 
 ## Dev environment tips
@@ -58,6 +59,7 @@
 - For large, risky, or multi-step tasks, create and maintain an execution plan using `agent_docs/plans.md`.
 - Use `agent_docs/plans.md` when the work spans multiple files, changes persisted data or PWA behavior, involves refactoring, or is likely to require handoff between agents.
 - Follow the format and maintenance rules in `agent_docs/plans.md`, and keep the plan current as decisions, progress, and discoveries change.
+- If you are acting as a manager agent and delegating work to other agents, read `agent_docs/task_master.md` before splitting the task.
 
 ## Change instructions
 - Keep edits incremental and easy to review.

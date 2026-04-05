@@ -50,6 +50,7 @@ The app is designed around quick phone use:
 - [plans.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/plans.md): execution-plan rules for large or risky work
 - [project.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/project.md): quick repo orientation for new agents
 - [codex.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/codex.md): durable notes about breakages and safe patterns
+- [task_master.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/task_master.md): manager-agent operating guide for delegation and specialist coordination
 - [README.md](C:/Users/carve/OneDrive/Projects/workout/README.md): user-facing repo overview
 - [package.json](C:/Users/carve/OneDrive/Projects/workout/package.json): scripts, dependencies, overrides
 
@@ -151,7 +152,7 @@ For risky or multi-file work, use [plans.md](C:/Users/carve/OneDrive/Projects/wo
 - Mobile performance matters. Prefer small, local helpers over heavier abstractions or new dependencies.
 - Persistence changes are risky. Update normalization and compatibility paths whenever changing stored types.
 - PWA changes are risky. Build and preview verification matter whenever changing routing, assets, manifest behavior, or service worker assumptions.
-- Agent-facing docs are intentionally split by responsibility. Check `AGENTS.md` for rules, `agent_docs/project.md` for orientation, `agent_docs/codex.md` for repo memory, and `agent_docs/plans.md` for plan-writing standards.
+- Agent-facing docs are intentionally split by responsibility. Check `AGENTS.md` for rules, `agent_docs/project.md` for orientation, `agent_docs/codex.md` for repo memory, `agent_docs/plans.md` for plan-writing standards, and `agent_docs/task_master.md` when managing other agents.
 
 ## How To Get Productive Quickly
 
