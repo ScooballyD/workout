@@ -1,9 +1,10 @@
-import { Exercise, PR, TrainingPlan } from "./types";
+import { Exercise, PR } from "./types";
 
 export const INITIAL_EXERCISES: Exercise[] = [
   {
     id: "1",
     name: "BENCH PRESS",
+    primaryMuscle: "Chest",
     sets: 5,
     reps: "5-8",
     logs: [],
@@ -12,6 +13,7 @@ export const INITIAL_EXERCISES: Exercise[] = [
   {
     id: "2",
     name: "INCLINE DUMBBELL PRESS",
+    primaryMuscle: "Chest",
     sets: 4,
     reps: "8-10",
     logs: [],
@@ -20,6 +22,7 @@ export const INITIAL_EXERCISES: Exercise[] = [
   {
     id: "3",
     name: "PEC DECK FLY",
+    primaryMuscle: "Chest",
     sets: 3,
     reps: "12-15",
     logs: [],
@@ -28,6 +31,7 @@ export const INITIAL_EXERCISES: Exercise[] = [
   {
     id: "4",
     name: "TRICEP PUSHDOWN",
+    primaryMuscle: "Triceps",
     sets: 4,
     reps: "10-12",
     logs: [],

@@ -1,21 +1,24 @@
-import { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types';
+import type { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types';
+import { normalizePrimaryMuscleGroup } from './exercise-tags.ts';
 
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'lbs',
   hapticFeedback: true,
-  matchWeight: false,
+  matchWeight: true,
+};
+
+export type ImportedBackupData = {
+  exercises: Exercise[];
+  prs: PR[];
+  plans: TrainingPlan[];
+  activePlanId: string | null;
+  settings: Settings;
 };
 
 type ImportValidationResult =
   | {
       ok: true;
-      value: {
-        exercises: Exercise[];
-        prs: PR[];
-        plans: TrainingPlan[];
-        activePlanId: string | null;
-        settings: Settings;
-      };
+      value: ImportedBackupData;
     }
   | {
       ok: false;
@@ -87,6 +90,7 @@ const normalizeExercise = (value: unknown): Exercise | null => {
   const exercise: Exercise = {
     id: value.id,
     name: value.name,
+    primaryMuscle: normalizePrimaryMuscleGroup(value.primaryMuscle),
     sets,
     reps: value.reps,
     logs,
@@ -221,6 +225,28 @@ const normalizeSchedule = (value: unknown): TrainingPlan['schedule'] | null => {
   return schedule;
 };
 
+const normalizePlanDeload = (
+  value: unknown,
+  durationWeeks: number
+): TrainingPlan['deload'] | null => {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  if (value.enabled !== true || !isPositiveInteger(value.baseDurationWeeks)) {
+    return null;
+  }
+
+  if (durationWeeks !== value.baseDurationWeeks + 1) {
+    return null;
+  }
+
+  return {
+    enabled: true,
+    baseDurationWeeks: value.baseDurationWeeks,
+  };
+};
+
 const normalizePlan = (value: unknown): TrainingPlan | null => {
   if (
     !isObject(value) ||
@@ -259,6 +285,15 @@ const normalizePlan = (value: unknown): TrainingPlan | null => {
     }
 
     plan.advanced = { autoIncrement: value.advanced.autoIncrement };
+  }
+
+  if (value.deload !== undefined) {
+    const deload = normalizePlanDeload(value.deload, durationWeeks);
+    if (!deload) {
+      return null;
+    }
+
+    plan.deload = deload;
   }
 
   return plan;
@@ -375,6 +410,16 @@ export const validateImportedBackup = (
       settings,
     },
   };
+};
+
+export const parseImportedBackupFile = (
+  raw: string
+): ImportValidationResult => {
+  try {
+    return validateImportedBackup(JSON.parse(raw));
+  } catch {
+    return { ok: false, error: 'INVALID BACKUP FILE' };
+  }
 };
 
 export const normalizeExercisesForStorage = (value: unknown): Exercise[] | null =>

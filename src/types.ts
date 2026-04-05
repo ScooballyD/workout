@@ -1,3 +1,5 @@
+import type { PrimaryMuscleGroup } from './lib/exercise-tags.ts';
+
 export interface SetLog {
   weight: number;
   reps: number;
@@ -7,6 +9,7 @@ export interface SetLog {
 export interface Exercise {
   id: string;
   name: string;
+  primaryMuscle: PrimaryMuscleGroup;
   sets: number;
   reps: string;
   logs: Array<SetLog | undefined>;
@@ -21,6 +24,11 @@ export interface Workout {
   id: string;
   name: string;
   exercises: Exercise[];
+}
+
+export interface PlanDeload {
+  enabled: boolean;
+  baseDurationWeeks: number;
 }
 
 export interface TrainingPlan {
@@ -40,6 +48,7 @@ export interface TrainingPlan {
   advanced?: {
     autoIncrement: boolean;
   };
+  deload?: PlanDeload;
 }
 
 export interface PR {

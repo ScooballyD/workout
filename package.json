@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test --test-isolation=none --experimental-strip-types src/**/*.test.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rimraf dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",
@@ -32,5 +32,10 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vite-plugin-pwa": "^1.2.0"
+  },
+  "overrides": {
+    "workbox-build": {
+      "@rollup/plugin-terser": "1.0.0"
+    }
   }
 }
