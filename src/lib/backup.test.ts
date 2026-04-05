@@ -115,12 +115,16 @@ test('validateImportedBackup preserves explicit deload plan metadata', () => {
         enabled: true;
         baseDurationWeeks: number;
       };
+      exerciseSetCounts?: Record<string, number>;
     }>;
   };
   backup.plans[0].durationWeeks = 5;
   backup.plans[0].deload = {
     enabled: true,
     baseDurationWeeks: 4,
+  };
+  backup.plans[0].exerciseSetCounts = {
+    'BENCH PRESS': 4,
   };
 
   const result = validateImportedBackup(backup);
@@ -133,6 +137,24 @@ test('validateImportedBackup preserves explicit deload plan metadata', () => {
   assert.deepEqual(result.value.plans[0].deload, {
     enabled: true,
     baseDurationWeeks: 4,
+  });
+  assert.deepEqual(result.value.plans[0].exerciseSetCounts, {
+    'BENCH PRESS': 4,
+  });
+});
+
+test('validateImportedBackup seeds legacy plans with the default 2-set baseline per scheduled exercise', () => {
+  const backup = createValidBackup();
+
+  const result = validateImportedBackup(backup);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    throw new Error('expected import to succeed');
+  }
+
+  assert.deepEqual(result.value.plans[0].exerciseSetCounts, {
+    'BENCH PRESS': 2,
   });
 });
 

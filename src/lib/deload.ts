@@ -1,4 +1,5 @@
 import type { Exercise, TrainingPlan } from '../types.ts';
+import { normalizePlanExerciseName } from './plans.ts';
 
 export const DELOAD_WEIGHT_MULTIPLIER = 0.75;
 export const DELOAD_SET_MULTIPLIER = 0.75;
@@ -17,10 +18,18 @@ export const applyDeloadWeight = (weight: number): number =>
   weight * DELOAD_WEIGHT_MULTIPLIER;
 
 export const getPlanExerciseSetCount = (
-  exercise: Pick<Exercise, 'sets'>,
+  exercise: Pick<Exercise, 'name' | 'sets'>,
   plan: TrainingPlan | undefined,
   week: number
-): number => (isDeloadWeek(plan, week) ? getDeloadSetCount(exercise.sets) : exercise.sets);
+): number => {
+  const normalizedName = normalizePlanExerciseName(exercise.name);
+  const planSetCount =
+    plan?.exerciseSetCounts?.[normalizedName] ??
+    plan?.exerciseSetCounts?.[exercise.name] ??
+    exercise.sets;
+
+  return isDeloadWeek(plan, week) ? getDeloadSetCount(planSetCount) : planSetCount;
+};
 
 export const getPlanWeight = (
   weight: number,

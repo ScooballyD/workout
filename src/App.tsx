@@ -45,7 +45,7 @@ import {
   syncExerciseLogInputValues,
   type ExerciseLogInputValue,
 } from './lib/exercise-log-inputs';
-import { getNextSetInfo } from './lib/next-set-info';
+import { getNextSetDisplayValues, getNextSetInfo } from './lib/next-set-info';
 import { getLocalCalendarDateString } from './lib/local-date';
 import {
   addExerciseToPlanDay,
@@ -57,8 +57,10 @@ import {
 import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
 import { getPlanExerciseSetCount, isDeloadWeek } from './lib/deload.ts';
 import {
+  buildPlanExerciseSetCounts,
   deletePlanById,
   mergePlanEdits,
+  normalizePlanExerciseName,
   replacePlanById,
   restartPlanProgress,
 } from './lib/plans.ts';
@@ -107,6 +109,61 @@ const createPlanEditorSchedule = (
     return schedule;
   }, {});
 
+const formatMuscleGroupLabel = (group: PrimaryMuscleGroup) =>
+  group === 'Other' ? 'ACCESSORY' : group.toUpperCase();
+
+const buildPlanFocusSummary = (
+  schedule: Record<string, PlanEditorDay>,
+  exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>
+) => {
+  const counts = PRIMARY_MUSCLE_GROUPS.reduce<Record<PrimaryMuscleGroup, number>>(
+    (accumulator, group) => {
+      accumulator[group] = 0;
+      return accumulator;
+    },
+    {} as Record<PrimaryMuscleGroup, number>
+  );
+  let totalExercises = 0;
+
+  Object.values(schedule).forEach((day) => {
+    if (day.type !== 'workout') {
+      return;
+    }
+
+    day.exercises.forEach((exerciseName) => {
+      const normalizedName = normalizePlanExerciseName(exerciseName);
+      const primaryMuscle =
+        exercisePrimaryMuscles[normalizedName] ?? DEFAULT_PRIMARY_MUSCLE_GROUP;
+
+      counts[primaryMuscle] += 1;
+      totalExercises += 1;
+    });
+  });
+
+  if (totalExercises === 0) {
+    return 'ADD EXERCISES TO SEE FOCUS';
+  }
+
+  const rankedMuscles = PRIMARY_MUSCLE_GROUPS
+    .map((group, index) => ({
+      group,
+      count: counts[group],
+      index,
+    }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count || left.index - right.index);
+
+  const topMuscles = rankedMuscles.slice(0, 2);
+
+  if (topMuscles.length === 1) {
+    return `${formatMuscleGroupLabel(topMuscles[0].group)} FOCUS`;
+  }
+
+  return `${topMuscles.map((entry) => formatMuscleGroupLabel(entry.group)).join(' / ')} ${
+    rankedMuscles.length > topMuscles.length ? 'MIX' : 'FOCUS'
+  }`;
+};
+
 // --- Components ---
 
 const BottomNav = () => {
@@ -145,11 +202,13 @@ const BottomNav = () => {
 const DailyGrind = ({ 
   exercises, 
   activePlan,
+  unit,
   onLogSet,
   onCompleteWorkout 
 }: { 
   exercises: Exercise[], 
   activePlan?: TrainingPlan,
+  unit: Settings['unit'],
   onLogSet: (id: string, setIndex: number, weight: number, reps: number) => void,
   onCompleteWorkout: () => void 
 }) => {
@@ -201,8 +260,12 @@ const DailyGrind = ({
           const completed = isCompleted(ex);
           const isActive = idx === activeIndex;
           const setCount = getExerciseSetCount(ex);
-          const nextSetInfo = getNextSetInfo(ex, { autoIncrement, currentWeek, plan: activePlan });
-          const displayReps = completed ? ex.reps : nextSetInfo.defaultReps || ex.reps;
+          const nextSetDisplay = getNextSetDisplayValues(ex, {
+            autoIncrement,
+            currentWeek,
+            plan: activePlan,
+            unit,
+          });
           
           return (
             <Link 
@@ -235,8 +298,16 @@ const DailyGrind = ({
               <div className="flex justify-between items-end border-t border-muted pt-3">
                 <div className="flex gap-4 text-sm font-bold text-muted">
                   <div>
+                    <span className="block text-xs text-muted/60 mb-1">WEIGHT</span>
+                    <span className={cn("text-lg", (isActive || completed) ? "text-text-main" : "text-muted")}>
+                      {nextSetDisplay.weight}
+                    </span>
+                  </div>
+                  <div>
                     <span className="block text-xs text-muted/60 mb-1">REPS</span>
-                    <span className={cn("text-lg", (isActive || completed) ? "text-text-main" : "text-muted")}>{displayReps}</span>
+                    <span className={cn("text-lg", (isActive || completed) ? "text-text-main" : "text-muted")}>
+                      {nextSetDisplay.reps}
+                    </span>
                   </div>
                 </div>
                 <div className="flex gap-1">
@@ -984,7 +1055,9 @@ const CreatePlan = ({
             <p className="text-lg font-black mt-1 uppercase">
               {(Object.values(schedule) as { type: string }[]).filter(s => s.type === 'workout').length} DAYS/WEEK • {deloadEnabled ? `${duration} + DELOAD` : `${duration} WEEKS`}
             </p>
-            <p className="text-[10px] text-primary mt-2 italic uppercase">INTENSITY: HIGH PERFORMANCE HUD ENABLED</p>
+            <p className="text-[10px] text-primary mt-2 italic uppercase">
+              {buildPlanFocusSummary(schedule, exercisePrimaryMuscles)}
+            </p>
           </div>
         </div>
       </main>
@@ -1137,7 +1210,10 @@ export default function App() {
     return parseStoredValue(
       localStorage.getItem('workout_exercises'),
       normalizeExercisesForStorage,
-      INITIAL_EXERCISES
+      INITIAL_EXERCISES.map((exercise) => ({
+        ...exercise,
+        sets: 2,
+      }))
     );
   });
   const [prs, setPrs] = useState<PR[]>(() => {
@@ -1232,23 +1308,113 @@ export default function App() {
   };
 
   const handleAddSet = (exId: string) => {
-    setExercises(prev => prev.map(ex => ex.id === exId ? { ...ex, sets: ex.sets + 1 } : ex));
+    const activePlanIdSnapshot = activePlanId;
+    const activePlanSnapshot = plans.find((plan) => plan.id === activePlanIdSnapshot);
+    const exercise = exercises.find((candidate) => candidate.id === exId);
+    const normalizedExerciseName = exercise
+      ? normalizePlanExerciseName(exercise.name)
+      : null;
+    const exerciseIsInActivePlan =
+      !!activePlanSnapshot &&
+      !!normalizedExerciseName &&
+      Object.values(activePlanSnapshot.schedule).some(
+        (day: TrainingPlan['schedule'][string]) =>
+        (day.exercises ?? []).some(
+          (exerciseName) =>
+            normalizePlanExerciseName(exerciseName) === normalizedExerciseName
+        )
+      );
+
+    if (!exercise || !normalizedExerciseName || !exerciseIsInActivePlan) {
+      setExercises((prev) =>
+        prev.map((candidate) =>
+          candidate.id === exId ? { ...candidate, sets: candidate.sets + 1 } : candidate
+        )
+      );
+      return;
+    }
+
+    setPlans((prev) =>
+      prev.map((plan) => {
+        if (plan.id !== activePlanIdSnapshot) {
+          return plan;
+        }
+
+        const nextCounts = buildPlanExerciseSetCounts(
+          plan.schedule,
+          plan.exerciseSetCounts
+        );
+        nextCounts[normalizedExerciseName] =
+          (nextCounts[normalizedExerciseName] ?? 2) + 1;
+
+        return {
+          ...plan,
+          exerciseSetCounts: nextCounts,
+        };
+      })
+    );
   };
 
   const handleRemoveSet = (exId: string) => {
-    setExercises(prev => prev.map(ex => {
-      if (ex.id !== exId || ex.sets <= 1) {
-        return ex;
-      }
+    const activePlanIdSnapshot = activePlanId;
+    const activePlanSnapshot = plans.find((plan) => plan.id === activePlanIdSnapshot);
+    const exercise = exercises.find((candidate) => candidate.id === exId);
+    const normalizedExerciseName = exercise
+      ? normalizePlanExerciseName(exercise.name)
+      : null;
+    const exerciseIsInActivePlan =
+      !!activePlanSnapshot &&
+      !!normalizedExerciseName &&
+      Object.values(activePlanSnapshot.schedule).some(
+        (day: TrainingPlan['schedule'][string]) =>
+        (day.exercises ?? []).some(
+          (exerciseName) =>
+            normalizePlanExerciseName(exerciseName) === normalizedExerciseName
+        )
+      );
 
-      const nextSets = ex.sets - 1;
-      return {
-        ...ex,
-        sets: nextSets,
-        logs: ex.logs.slice(0, nextSets),
-        lastLogs: ex.lastLogs?.slice(0, nextSets),
-      };
-    }));
+    if (!exercise || !normalizedExerciseName || !exerciseIsInActivePlan) {
+      setExercises((prev) =>
+        prev.map((candidate) => {
+          if (candidate.id !== exId || candidate.sets <= 1) {
+            return candidate;
+          }
+
+          const nextSets = candidate.sets - 1;
+          return {
+            ...candidate,
+            sets: nextSets,
+            logs: candidate.logs.slice(0, nextSets),
+            lastLogs: candidate.lastLogs?.slice(0, nextSets),
+          };
+        })
+      );
+      return;
+    }
+
+    setPlans((prev) =>
+      prev.map((plan) => {
+        if (plan.id !== activePlanIdSnapshot) {
+          return plan;
+        }
+
+        const nextCounts = buildPlanExerciseSetCounts(
+          plan.schedule,
+          plan.exerciseSetCounts
+        );
+        const currentCount = nextCounts[normalizedExerciseName] ?? 2;
+        if (currentCount <= 1) {
+          return plan;
+        }
+
+        nextCounts[normalizedExerciseName] = currentCount - 1;
+
+        return {
+          ...plan,
+          exerciseSetCounts: nextCounts,
+        };
+      })
+    );
   };
 
   const handleSavePlan = (
@@ -1256,30 +1422,40 @@ export default function App() {
     exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>,
     mode: 'create' | 'edit'
   ) => {
+    const planWithCounts = {
+      ...newPlan,
+      exerciseSetCounts: buildPlanExerciseSetCounts(
+        newPlan.schedule,
+        newPlan.exerciseSetCounts
+      ),
+    };
+
     setPlans(prev => {
       if (mode === 'edit') {
-        const existingPlan = prev.find((plan) => plan.id === newPlan.id);
+        const existingPlan = prev.find((plan) => plan.id === planWithCounts.id);
         if (!existingPlan) {
-          return [...prev, newPlan];
+          return [...prev, planWithCounts];
         }
 
-        return replacePlanById(prev, mergePlanEdits(existingPlan, newPlan));
+        return replacePlanById(prev, mergePlanEdits(existingPlan, planWithCounts));
       }
 
-      return [...prev, newPlan];
+      return [...prev, planWithCounts];
     });
 
     if (mode === 'create' && !activePlanId) {
-      setActivePlanId(newPlan.id);
+      setActivePlanId(planWithCounts.id);
     }
     
     // Ensure all exercise names in the new plan have corresponding Exercise objects
     const newExerciseNames = new Set<string>();
-    Object.values(newPlan.schedule).forEach(day => {
+    Object.values(planWithCounts.schedule).forEach(
+      (day: TrainingPlan['schedule'][string]) => {
       if (day.exercises) {
         day.exercises.forEach(name => newExerciseNames.add(name));
       }
-    });
+      }
+    );
 
     setExercises(prev => {
       const existingNames = new Set(prev.map(e => e.name));
@@ -1291,7 +1467,7 @@ export default function App() {
             name: name,
             primaryMuscle:
               exercisePrimaryMuscles[name.toUpperCase()] ?? DEFAULT_PRIMARY_MUSCLE_GROUP,
-            sets: 3,
+            sets: 2,
             reps: "8-15",
             logs: []
           });
@@ -1412,7 +1588,12 @@ export default function App() {
   };
 
   const handleWipeData = () => {
-    setExercises(INITIAL_EXERCISES);
+    setExercises(
+      INITIAL_EXERCISES.map((exercise) => ({
+        ...exercise,
+        sets: 2,
+      }))
+    );
     setPrs(INITIAL_PRS);
     setPlans([]);
     setActivePlanId(null);
@@ -1463,6 +1644,7 @@ export default function App() {
                   <DailyGrind 
                     exercises={todayExercises} 
                     activePlan={activePlan}
+                    unit={settings.unit}
                     onLogSet={handleLogSet}
                     onCompleteWorkout={handleCompleteWorkout} 
                   />
@@ -1531,7 +1713,7 @@ export default function App() {
           />
           <Route path="/prs" element={
             <React.Suspense fallback={<div className="flex-1 bg-black" />}>
-              <PRVaultPage prs={prs} settings={settings} />
+              <PRVaultPage prs={prs} settings={settings} exercises={exercises} />
             </React.Suspense>
           } />
           <Route path="/settings" element={<SettingsPage settings={settings} setSettings={setSettings} onToggleUnit={handleToggleUnit} onWipeData={handleWipeData} onExportData={handleExportData} onImportData={handleImportData} />} />

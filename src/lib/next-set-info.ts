@@ -38,3 +38,41 @@ export function getNextSetInfo(
     defaultReps,
   };
 }
+
+export function getNextSetDisplayValues(
+  exercise: Exercise,
+  {
+    autoIncrement,
+    currentWeek,
+    plan,
+    unit,
+  }: {
+    autoIncrement: boolean;
+    currentWeek: number;
+    plan?: TrainingPlan;
+    unit: 'lbs' | 'kg';
+  }
+) {
+  const nextSetInfo = getNextSetInfo(exercise, {
+    autoIncrement,
+    currentWeek,
+    plan,
+  });
+
+  if (nextSetInfo.actualSetIndex === null) {
+    return {
+      weight: '-',
+      reps: '-',
+    };
+  }
+
+  return {
+    weight:
+      nextSetInfo.defaultWeight > 0
+        ? `${nextSetInfo.defaultWeight}${unit.toUpperCase()}`
+        : '-',
+    reps: nextSetInfo.defaultReps > 0
+      ? String(nextSetInfo.defaultReps)
+      : exercise.reps,
+  };
+}

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import type { TrainingPlan } from '../types.ts';
 import {
+  buildPlanExerciseSetCounts,
   deletePlanById,
   mergePlanEdits,
   replacePlanById,
@@ -41,6 +42,11 @@ test('restartPlanProgress resets progress counters without changing plan structu
   assert.equal(restarted.durationWeeks, plan.durationWeeks);
   assert.deepEqual(restarted.schedule, plan.schedule);
   assert.deepEqual(restarted.advanced, plan.advanced);
+  assert.deepEqual(restarted.exerciseSetCounts, {
+    SQUAT: 2,
+    BENCH: 2,
+    DEADLIFT: 2,
+  });
 });
 
 test('replacePlanById updates an existing plan in place instead of appending a duplicate', () => {
@@ -77,6 +83,11 @@ test('mergePlanEdits preserves progress while clamping it to the edited duration
     currentWeek: 5,
     currentDay: 29,
     durationWeeks: 5,
+    exerciseSetCounts: {
+      SQUAT: 4,
+      BENCH: 3,
+      DEADLIFT: 5,
+    },
   });
   const edited = createPlan({
     id: 'plan-1',
@@ -84,6 +95,15 @@ test('mergePlanEdits preserves progress while clamping it to the edited duration
     durationWeeks: 3,
     currentWeek: 1,
     currentDay: 1,
+    schedule: {
+      MON: { type: 'workout', exercises: ['SQUAT'] },
+      TUE: { type: 'rest' },
+      WED: { type: 'workout', exercises: ['BENCH', 'PULLUP'] },
+      THU: { type: 'rest' },
+      FRI: { type: 'workout', exercises: ['DEADLIFT'] },
+      SAT: { type: 'rest' },
+      SUN: { type: 'rest' },
+    },
   });
 
   const merged = mergePlanEdits(existing, edited);
@@ -93,6 +113,35 @@ test('mergePlanEdits preserves progress while clamping it to the edited duration
   assert.equal(merged.durationWeeks, 3);
   assert.equal(merged.currentDay, 21);
   assert.equal(merged.currentWeek, 3);
+  assert.deepEqual(merged.exerciseSetCounts, {
+    SQUAT: 4,
+    BENCH: 3,
+    DEADLIFT: 5,
+    PULLUP: 2,
+  });
+});
+
+test('buildPlanExerciseSetCounts prunes stale exercises that are no longer in the schedule', () => {
+  const counts = buildPlanExerciseSetCounts(
+    {
+      MON: { type: 'workout', exercises: ['SQUAT'] },
+      TUE: { type: 'rest' },
+      WED: { type: 'rest' },
+      THU: { type: 'rest' },
+      FRI: { type: 'rest' },
+      SAT: { type: 'rest' },
+      SUN: { type: 'rest' },
+    },
+    {
+      SQUAT: 4,
+      BENCH: 3,
+      DEADLIFT: 5,
+    }
+  );
+
+  assert.deepEqual(counts, {
+    SQUAT: 4,
+  });
 });
 
 test('deletePlanById removes a non-active plan and preserves the active plan id', () => {

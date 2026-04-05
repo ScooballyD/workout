@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getNextSetInfo } from './next-set-info.ts';
+import { getNextSetDisplayValues, getNextSetInfo } from './next-set-info.ts';
 import type { Exercise, TrainingPlan } from '../types.ts';
 
 test('getNextSetInfo keeps the set index null when every set is complete', () => {
@@ -90,5 +90,38 @@ test('getNextSetInfo applies deload weight on the final week without whole-numbe
     actualSetIndex: 3,
     defaultWeight: 138.75,
     defaultReps: 5,
+  });
+});
+
+test('getNextSetDisplayValues returns dashes once an exercise is complete', () => {
+  const exercise: Exercise = {
+    id: 'bench',
+    name: 'Bench Press',
+    primaryMuscle: 'Chest',
+    sets: 2,
+    reps: '5',
+    logs: [
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+    ],
+    lastLogs: [
+      { weight: 185, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: true },
+    ],
+    recommended: {
+      weight: 135,
+      reps: 5,
+    },
+  };
+
+  const displayValues = getNextSetDisplayValues(exercise, {
+    autoIncrement: true,
+    currentWeek: 3,
+    unit: 'lbs',
+  });
+
+  assert.deepEqual(displayValues, {
+    weight: '-',
+    reps: '-',
   });
 });

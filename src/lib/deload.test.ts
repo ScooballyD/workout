@@ -5,6 +5,7 @@ import type { TrainingPlan } from '../types.ts';
 import {
   applyDeloadWeight,
   getDeloadSetCount,
+  getPlanExerciseSetCount,
   isDeloadWeek,
 } from './deload.ts';
 
@@ -48,4 +49,31 @@ test('isDeloadWeek only activates on the final stored week of a deload plan', ()
     ),
     false
   );
+});
+
+test('getPlanExerciseSetCount uses the plan-local set count instead of the shared exercise baseline', () => {
+  const exercise = {
+    id: 'bench',
+    name: 'Bench Press',
+    primaryMuscle: 'Chest' as const,
+    sets: 2,
+    reps: '5',
+    logs: [],
+  };
+
+  const firstPlan = createPlan({
+    id: 'plan-a',
+    exerciseSetCounts: {
+      'Bench Press': 2,
+    },
+  });
+  const secondPlan = createPlan({
+    id: 'plan-b',
+    exerciseSetCounts: {
+      'Bench Press': 4,
+    },
+  });
+
+  assert.equal(getPlanExerciseSetCount(exercise, firstPlan, 1), 2);
+  assert.equal(getPlanExerciseSetCount(exercise, secondPlan, 1), 4);
 });

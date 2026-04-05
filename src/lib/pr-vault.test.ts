@@ -1,13 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { PR } from '../types.ts';
+import type { Exercise, PR } from '../types.ts';
 import {
   getPrChartDomain,
-  filterPrsByExercise,
+  filterPrsByMuscleGroup,
   getPrFilterOptions,
   togglePrExerciseFilter,
 } from './pr-vault.ts';
+
+const createExercise = (overrides: Partial<Exercise>): Exercise => ({
+  id: 'exercise-1',
+  name: 'BENCH PRESS',
+  primaryMuscle: 'Chest',
+  sets: 3,
+  reps: '5-8',
+  logs: [],
+  ...overrides,
+});
 
 const createPr = (overrides: Partial<PR>): PR => ({
   exerciseId: 'exercise-1',
@@ -18,73 +28,94 @@ const createPr = (overrides: Partial<PR>): PR => ({
   ...overrides,
 });
 
-test('getPrFilterOptions keeps ALL and adds only exercises present in PR data', () => {
+test('getPrFilterOptions keeps ALL and adds only muscle groups present in PR data', () => {
   const prs = [
     createPr({ exerciseId: 'exercise-1', exerciseName: 'BENCH PRESS' }),
     createPr({ exerciseId: 'exercise-2', exerciseName: 'SQUAT' }),
-    createPr({ exerciseId: 'exercise-3', exerciseName: 'bench press' }),
+    createPr({ exerciseId: 'exercise-3', exerciseName: 'LEGACY PRESS' }),
+    createPr({ exerciseId: 'exercise-4', exerciseName: 'bench press' }),
+  ];
+  const exercises = [
+    createExercise({ id: 'exercise-1', name: 'BENCH PRESS', primaryMuscle: 'Chest' }),
+    createExercise({ id: 'exercise-2', name: 'SQUAT', primaryMuscle: 'Quads' }),
+    createExercise({ id: 'exercise-3', name: 'LEGACY PRESS', primaryMuscle: 'legacy-tag' as never }),
   ];
 
-  assert.deepEqual(getPrFilterOptions(prs), ['ALL', 'BENCH PRESS', 'SQUAT']);
+  assert.deepEqual(getPrFilterOptions(prs, exercises), ['ALL', 'Chest', 'Quads', 'Other']);
 });
 
 test('getPrFilterOptions returns only ALL when there is no PR data', () => {
-  assert.deepEqual(getPrFilterOptions([]), ['ALL']);
+  assert.deepEqual(getPrFilterOptions([], []), ['ALL']);
 });
 
-test('filterPrsByExercise returns no PRs when no filters are selected', () => {
-  const prs = [
-    createPr({ exerciseId: 'exercise-1', exerciseName: 'BENCH PRESS' }),
-    createPr({ exerciseId: 'exercise-2', exerciseName: 'bench press' }),
-    createPr({ exerciseId: 'exercise-3', exerciseName: 'SQUAT' }),
-  ];
-
-  assert.deepEqual(filterPrsByExercise(prs, []), []);
-});
-
-test('filterPrsByExercise matches selected names case-insensitively', () => {
-  const prs = [
-    createPr({ exerciseId: 'exercise-1', exerciseName: 'BENCH PRESS' }),
-    createPr({ exerciseId: 'exercise-2', exerciseName: 'bench press' }),
-    createPr({ exerciseId: 'exercise-3', exerciseName: 'SQUAT' }),
-  ];
-
-  assert.deepEqual(filterPrsByExercise(prs, ['BENCH PRESS']), prs.slice(0, 2));
-});
-
-test('filterPrsByExercise returns combined results for multiple selected filters', () => {
+test('filterPrsByMuscleGroup returns no PRs when no filters are selected', () => {
   const prs = [
     createPr({ exerciseId: 'exercise-1', exerciseName: 'BENCH PRESS' }),
     createPr({ exerciseId: 'exercise-2', exerciseName: 'SQUAT' }),
     createPr({ exerciseId: 'exercise-3', exerciseName: 'DEADLIFT' }),
   ];
+  const exercises = [
+    createExercise({ id: 'exercise-1', name: 'BENCH PRESS', primaryMuscle: 'Chest' }),
+    createExercise({ id: 'exercise-2', name: 'SQUAT', primaryMuscle: 'Quads' }),
+    createExercise({ id: 'exercise-3', name: 'DEADLIFT', primaryMuscle: 'Back' }),
+  ];
+
+  assert.deepEqual(filterPrsByMuscleGroup(prs, [], exercises), []);
+});
+
+test('filterPrsByMuscleGroup matches selected muscle groups case-insensitively', () => {
+  const prs = [
+    createPr({ exerciseId: 'exercise-1', exerciseName: 'BENCH PRESS' }),
+    createPr({ exerciseId: 'exercise-2', exerciseName: 'SQUAT' }),
+    createPr({ exerciseId: 'exercise-3', exerciseName: 'DEADLIFT' }),
+  ];
+  const exercises = [
+    createExercise({ id: 'exercise-1', name: 'BENCH PRESS', primaryMuscle: 'Chest' }),
+    createExercise({ id: 'exercise-2', name: 'SQUAT', primaryMuscle: 'Quads' }),
+    createExercise({ id: 'exercise-3', name: 'DEADLIFT', primaryMuscle: 'Back' }),
+  ];
+
+  assert.deepEqual(filterPrsByMuscleGroup(prs, ['chest'], exercises), [prs[0]]);
+});
+
+test('filterPrsByMuscleGroup returns combined results for multiple selected filters', () => {
+  const prs = [
+    createPr({ exerciseId: 'exercise-1', exerciseName: 'BENCH PRESS' }),
+    createPr({ exerciseId: 'exercise-2', exerciseName: 'SQUAT' }),
+    createPr({ exerciseId: 'exercise-3', exerciseName: 'DEADLIFT' }),
+  ];
+  const exercises = [
+    createExercise({ id: 'exercise-1', name: 'BENCH PRESS', primaryMuscle: 'Chest' }),
+    createExercise({ id: 'exercise-2', name: 'SQUAT', primaryMuscle: 'Quads' }),
+    createExercise({ id: 'exercise-3', name: 'DEADLIFT', primaryMuscle: 'Back' }),
+  ];
 
   assert.deepEqual(
-    filterPrsByExercise(prs, ['BENCH PRESS', 'DEADLIFT']),
+    filterPrsByMuscleGroup(prs, ['Chest', 'Back'], exercises),
     [prs[0], prs[2]],
   );
 });
 
-test('togglePrExerciseFilter toggles individual workout filters on and off', () => {
-  const filters = ['ALL', 'BENCH PRESS', 'SQUAT'];
+test('togglePrExerciseFilter toggles individual muscle-group filters on and off', () => {
+  const filters = ['ALL', 'Chest', 'Back', 'Other'];
 
-  assert.deepEqual(togglePrExerciseFilter([], 'BENCH PRESS', filters), ['BENCH PRESS']);
-  assert.deepEqual(togglePrExerciseFilter(['BENCH PRESS'], 'BENCH PRESS', filters), []);
+  assert.deepEqual(togglePrExerciseFilter([], 'Chest', filters), ['Chest']);
+  assert.deepEqual(togglePrExerciseFilter(['Chest'], 'Chest', filters), []);
 });
 
-test('togglePrExerciseFilter uses ALL to select every workout filter from a partial selection', () => {
-  const filters = ['ALL', 'BENCH PRESS', 'SQUAT', 'DEADLIFT'];
+test('togglePrExerciseFilter uses ALL to select every muscle-group filter from a partial selection', () => {
+  const filters = ['ALL', 'Chest', 'Back', 'Other'];
 
   assert.deepEqual(
-    togglePrExerciseFilter(['BENCH PRESS'], 'ALL', filters),
-    ['BENCH PRESS', 'SQUAT', 'DEADLIFT'],
+    togglePrExerciseFilter(['Chest'], 'ALL', filters),
+    ['Chest', 'Back', 'Other'],
   );
 });
 
-test('togglePrExerciseFilter uses ALL to clear filters when every workout filter is selected', () => {
-  const filters = ['ALL', 'BENCH PRESS', 'SQUAT'];
+test('togglePrExerciseFilter uses ALL to clear filters when every muscle-group filter is selected', () => {
+  const filters = ['ALL', 'Chest', 'Back', 'Other'];
 
-  assert.deepEqual(togglePrExerciseFilter(['BENCH PRESS', 'SQUAT'], 'ALL', filters), []);
+  assert.deepEqual(togglePrExerciseFilter(['Chest', 'Back', 'Other'], 'ALL', filters), []);
 });
 
 test('getPrChartDomain zooms into meaningful heavy-lift progress without clipping points', () => {

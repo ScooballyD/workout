@@ -6,19 +6,27 @@ import { Header } from '../components/Header';
 import { getLocalCalendarDateString } from '../lib/local-date';
 import {
   ALL_PR_FILTER,
-  filterPrsByExercise,
+  filterPrsByMuscleGroup,
   getPrChartDomain,
   getPrFilterOptions,
   togglePrExerciseFilter,
 } from '../lib/pr-vault';
 import { cn } from '../lib/utils';
-import type { PR, Settings } from '../types';
+import type { Exercise, PR, Settings } from '../types';
 
-export default function PRVault({ prs, settings }: { prs: PR[]; settings: Settings }) {
-  const filters = getPrFilterOptions(prs);
+export default function PRVault({
+  prs,
+  settings,
+  exercises,
+}: {
+  prs: PR[];
+  settings: Settings;
+  exercises: Exercise[];
+}) {
+  const filters = getPrFilterOptions(prs, exercises);
   const workoutFilters = filters.filter(filter => filter !== ALL_PR_FILTER);
   const [selectedFilters, setSelectedFilters] = useState<string[]>(() => workoutFilters);
-  const filteredPrs = filterPrsByExercise(prs, selectedFilters);
+  const filteredPrs = filterPrsByMuscleGroup(prs, selectedFilters, exercises);
   const areAllFiltersSelected = workoutFilters.length > 0 && selectedFilters.length === workoutFilters.length;
 
   useEffect(() => {

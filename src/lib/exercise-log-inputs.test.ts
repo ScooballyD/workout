@@ -137,3 +137,47 @@ test('createExerciseLogInputValues shortens the final deload week to the rounded
     [138.75, 138.75, 138.75, 138.75]
   );
 });
+
+test('createExerciseLogInputValues respects each plan\'s independent set progression', () => {
+  const exercise = baseExercise();
+  const firstPlan: TrainingPlan = {
+    id: 'plan-a',
+    name: 'PUSH',
+    durationWeeks: 4,
+    currentWeek: 1,
+    currentDay: 1,
+    schedule: {
+      MON: { type: 'workout', exercises: ['Bench Press'] },
+    },
+    exerciseSetCounts: {
+      'Bench Press': 2,
+    },
+  };
+  const secondPlan: TrainingPlan = {
+    id: 'plan-b',
+    name: 'PUSH B',
+    durationWeeks: 4,
+    currentWeek: 1,
+    currentDay: 1,
+    schedule: {
+      MON: { type: 'workout', exercises: ['Bench Press'] },
+    },
+    exerciseSetCounts: {
+      'Bench Press': 4,
+    },
+  };
+
+  const firstPlanInputs = createExerciseLogInputValues(exercise, {
+    autoIncrement: false,
+    currentWeek: 1,
+    plan: firstPlan,
+  });
+  const secondPlanInputs = createExerciseLogInputValues(exercise, {
+    autoIncrement: false,
+    currentWeek: 1,
+    plan: secondPlan,
+  });
+
+  assert.equal(firstPlanInputs.length, 2);
+  assert.equal(secondPlanInputs.length, 4);
+});
