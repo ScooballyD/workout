@@ -6,6 +6,7 @@
 - Prefer solutions that keep the app lightweight and static-host friendly. Avoid changes that assume a server is available at runtime.
 - New agents should read `agent_docs/project.md` early to get oriented on the app, file layout, persistence model, and current workflow expectations.
 - New agents should also read `agent_docs/codex.md` before changing persistence, plan lifecycle logic, PWA/build config, or shared UI state so they do not repeat known breakages.
+- Specialist agents should also read the relevant role playbook in `agent_docs/` before changing code in their owned domain.
 - If you encounter a new repository-specific failure pattern and fix it, update `agent_docs/codex.md` with the issue, failure mode, root cause, safe pattern, and verification notes before finishing.
 
 ## Agent Docs
@@ -14,6 +15,12 @@
 - `agent_docs/codex.md`: durable repo memory about breakages, root causes, and safe implementation patterns.
 - `agent_docs/plans.md`: the standard for writing execution plans on large or risky tasks; it is not a history log.
 - `agent_docs/task_master.md`: manager-agent guidance for triage, delegation, ownership boundaries, and integration across specialist agents.
+- `agent_docs/frontend.md`: durable playbook for UI specialists working on React/mobile flow changes.
+- `agent_docs/persistence.md`: durable playbook for storage, backup, schema, and plan-lifecycle specialists.
+- `agent_docs/pwa-build.md`: durable playbook for Vite/PWA/build and preview specialists.
+- `agent_docs/pr-vault.md`: durable playbook for PR Vault filters, charts, and data-display specialists.
+- `agent_docs/docs-process.md`: durable playbook for docs, plans, and task-tracking specialists.
+- `agent_docs/verification.md`: durable playbook for regression-test and verification specialists.
 - `todo.md`: active and completed task tracking.
 
 ## Dev environment tips

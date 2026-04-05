@@ -1387,10 +1387,12 @@ export default function App() {
   const activePlanInDeloadWeek = isDeloadWeek(activePlan, currentWeek);
   const todaySchedule = activePlan?.schedule[todayName];
   
-  // Filter exercises to only show those assigned to today in the active plan
-  const todayExercises = todaySchedule ? exercises.filter(ex => 
-    todaySchedule.exercises?.includes(ex.name)
-  ) : [];
+  // Preserve the plan-authored order and skip missing exercise records safely.
+  const todayExercises = todaySchedule
+    ? (todaySchedule.exercises ?? []).map((exerciseName) =>
+        exercises.find((exercise) => exercise.name === exerciseName)
+      ).filter((exercise): exercise is Exercise => Boolean(exercise))
+    : [];
 
   return (
     <Router>

@@ -1,6 +1,8 @@
 import type { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types';
 import { normalizePrimaryMuscleGroup } from './exercise-tags.ts';
 
+const PLAN_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
+
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'lbs',
   hapticFeedback: true,
@@ -213,12 +215,21 @@ const normalizeSchedule = (value: unknown): TrainingPlan['schedule'] | null => {
     return null;
   }
 
+  if (Object.keys(value).length !== PLAN_DAYS.length) {
+    return null;
+  }
+
   const schedule: TrainingPlan['schedule'] = {};
-  for (const [day, item] of Object.entries(value)) {
-    const normalizedDay = normalizePlanDay(item);
+  for (const day of PLAN_DAYS) {
+    if (!(day in value)) {
+      return null;
+    }
+
+    const normalizedDay = normalizePlanDay(value[day]);
     if (!normalizedDay) {
       return null;
     }
+
     schedule[day] = normalizedDay;
   }
 

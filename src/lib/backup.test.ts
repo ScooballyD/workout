@@ -10,6 +10,33 @@ import {
   validateImportedBackup,
 } from './backup.ts';
 
+const createValidSchedule = () => ({
+  MON: {
+    type: 'workout' as const,
+    exercises: ['BENCH PRESS'],
+  },
+  TUE: {
+    type: 'rest' as const,
+  },
+  WED: {
+    type: 'workout' as const,
+    exercises: ['BENCH PRESS'],
+  },
+  THU: {
+    type: 'rest' as const,
+  },
+  FRI: {
+    type: 'workout' as const,
+    exercises: ['BENCH PRESS'],
+  },
+  SAT: {
+    type: 'rest' as const,
+  },
+  SUN: {
+    type: 'rest' as const,
+  },
+});
+
 const createValidBackup = () => ({
   version: 1,
   exportedAt: '2026-04-02T12:00:00.000Z',
@@ -39,12 +66,7 @@ const createValidBackup = () => ({
       durationWeeks: 4,
       currentWeek: 1,
       currentDay: 1,
-      schedule: {
-        MON: {
-          type: 'workout',
-          exercises: ['BENCH PRESS'],
-        },
-      },
+      schedule: createValidSchedule(),
       advanced: {
         autoIncrement: true,
       },
@@ -111,6 +133,23 @@ test('validateImportedBackup preserves explicit deload plan metadata', () => {
   assert.deepEqual(result.value.plans[0].deload, {
     enabled: true,
     baseDurationWeeks: 4,
+  });
+});
+
+test('validateImportedBackup rejects plans with incomplete schedules', () => {
+  const backup = createValidBackup();
+  backup.plans[0].schedule = {
+    MON: {
+      type: 'workout',
+      exercises: ['BENCH PRESS'],
+    },
+  } as never;
+
+  const result = validateImportedBackup(backup);
+
+  assert.deepEqual(result, {
+    ok: false,
+    error: 'INVALID BACKUP FILE: plans are malformed',
   });
 });
 

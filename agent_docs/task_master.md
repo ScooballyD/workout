@@ -6,6 +6,8 @@ The goal is not to be another general repo guide. This document explains how to 
 
 This guide is aligned with the manager-style multi-agent pattern from the OpenAI Agents SDK: the manager stays in control, delegates bounded work to specialists, collects outputs, and decides what ships. Prefer that pattern here over loose handoffs unless the task genuinely benefits from a full ownership transfer.
 
+Favor sequencing specialists over running them in parallel. This is slower, but it raises the safety bar in a repo with several fragile shared-state and lifecycle areas.
+
 ## What The Manager Agent Owns
 
 The manager agent is responsible for:
@@ -22,6 +24,8 @@ The manager agent is responsible for:
 
 The manager agent should not behave like a passive dispatcher. It stays accountable for the final answer.
 
+The manager also owns the quality of the role playbooks in `agent_docs/`. When a task reveals new high-value, role-specific guidance that is likely to matter again, append that guidance to the relevant role playbook before finishing. If a role playbook contains stale, duplicated, or no-longer-useful guidance, prune it instead of letting the document grow into an archive.
+
 ## Read Order Before Delegating
 
 Before delegating any non-trivial work, read these in order:
@@ -33,6 +37,17 @@ Before delegating any non-trivial work, read these in order:
 5. [todo.md](C:/Users/carve/OneDrive/Projects/workout/todo.md) if the work should align with an existing tracked task
 
 Do not delegate from memory alone when the task touches a fragile area already called out in `codex.md`.
+
+Before dispatching a specialist, also read the matching role playbook when one exists:
+
+- [agent_docs/frontend.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/frontend.md)
+- [agent_docs/persistence.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/persistence.md)
+- [agent_docs/pwa-build.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/pwa-build.md)
+- [agent_docs/pr-vault.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/pr-vault.md)
+- [agent_docs/docs-process.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/docs-process.md)
+- [agent_docs/verification.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/verification.md)
+
+The manager should also tell the specialist to read the matching role playbook before implementation, or explicitly pass along the relevant constraints from that playbook in the delegation prompt. Do not assume the worker will discover the playbook automatically.
 
 ## This Repo's Real Specialist Domains
 
@@ -69,6 +84,8 @@ Delegate when:
 - a risky change needs focused verification in parallel with implementation
 - a substantial task has a clear specialist slice, such as UI work vs persistence work
 
+Even when delegation is appropriate, default to sequential delegation unless the slices are clearly independent and there is a concrete benefit to parallel execution.
+
 Do not delegate when:
 
 - creating a new task in the todo.md
@@ -86,6 +103,8 @@ For this repo, keep the critical-path integration work local when the task cross
 
 Those areas often need one person to keep the full behavior coherent.
 
+When the work is fragile but still delegable, prefer sequencing specialists through the area one at a time instead of running multiple agents concurrently.
+
 ## Preferred Coordination Pattern
 
 For this repo, use a manager pattern, not a loose handoff pattern, by default.
@@ -96,6 +115,14 @@ That means:
 - specialists get bounded tasks
 - specialists return findings, patches, or verification results
 - the manager decides how those results fit together
+
+The default execution order should usually be:
+
+- specialist A implements a slice
+- manager reviews and integrates that result
+- specialist B handles the next slice or verification work
+
+Do not parallelize by reflex. Use parallel delegation only when ownership is fully disjoint, the tasks do not depend on each other's findings, and sequencing provides little additional safety.
 
 Use full handoff-style ownership only when one agent can safely own a complete slice end to end without stepping on other work, such as a self-contained doc cleanup or a small isolated helper module change.
 
@@ -132,6 +159,8 @@ The manager owns the plan and keeps it current.
 
 Assign each specialist a disjoint write set whenever possible.
 
+After splitting ownership, decide whether the slices should be executed sequentially. In this repo, the answer should usually be yes unless the slices are plainly independent.
+
 Good split:
 
 - agent A owns `src/pages/PRVault.tsx` and `src/lib/pr-vault.ts`
@@ -143,6 +172,8 @@ Bad split:
 - one agent changing types while another independently changes normalization for the same schema
 
 If multiple agents must touch the same area, the manager should usually keep that work local instead.
+
+If the slices are independent but still affect related behavior, prefer sequencing implementation first and verification second instead of dispatching both in parallel.
 
 ### 4. Give a self-contained prompt
 
@@ -180,6 +211,17 @@ When specialists finish:
 The manager should not simply concatenate sub-agent outputs.
 
 ## Default Specialist Playbooks
+
+The durable role playbooks for these specialists live here:
+
+- [agent_docs/frontend.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/frontend.md)
+- [agent_docs/persistence.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/persistence.md)
+- [agent_docs/pwa-build.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/pwa-build.md)
+- [agent_docs/pr-vault.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/pr-vault.md)
+- [agent_docs/docs-process.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/docs-process.md)
+- [agent_docs/verification.md](C:/Users/carve/OneDrive/Projects/workout/agent_docs/verification.md)
+
+Specialists should read the relevant playbook before implementation, and the manager should update those playbooks when durable role knowledge changes.
 
 ### Frontend/UI work
 
@@ -246,6 +288,13 @@ Repo constraints to include:
 - keep references accurate
 - avoid broad rewrites that erase useful repo-specific guidance
 
+When updating docs/process guidance, decide whether the information belongs in:
+
+- `codex.md` for repo-wide breakage memory
+- a role playbook for durable specialist-specific guidance
+- `plans.md` for planning standards
+- `todo.md` for active task tracking
+
 ## Anti-Patterns To Avoid
 
 - Spawning multiple agents that all inspect the same unclear problem.
@@ -255,6 +304,8 @@ Repo constraints to include:
 - Treating docs work as low-risk when it changes repo process.
 - Allowing completed-task history to accumulate in `agent_docs/plans.md`.
 - Letting a specialist add a new dependency without explicit justification.
+- Running multiple specialists in parallel by default when sequencing would make review and integration safer.
+- Letting role playbooks drift into stale, duplicated, or task-history-heavy documents.
 
 ## Suggested Task Prompt Template
 
