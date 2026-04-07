@@ -125,3 +125,47 @@ test('getNextSetDisplayValues returns dashes once an exercise is complete', () =
     reps: '-',
   });
 });
+
+test('getNextSetInfo rounds generated target weights to the nearest quarter pound', () => {
+  const exercise: Exercise = {
+    id: 'bench',
+    name: 'Bench Press',
+    primaryMuscle: 'Chest',
+    sets: 3,
+    reps: '5',
+    logs: [],
+    recommended: {
+      weight: 135.13,
+      reps: 5,
+    },
+  };
+
+  const nextSetInfo = getNextSetInfo(exercise, {
+    autoIncrement: false,
+    currentWeek: 1,
+  });
+
+  assert.equal(nextSetInfo.defaultWeight, 135.25);
+});
+
+test('getNextSetInfo rounds generated target weights to the nearest quarter kilogram', () => {
+  const exercise: Exercise = {
+    id: 'row',
+    name: 'Barbell Row',
+    primaryMuscle: 'Back',
+    sets: 3,
+    reps: '8',
+    logs: [],
+    recommended: {
+      weight: 72.37,
+      reps: 8,
+    },
+  };
+
+  const nextSetInfo = getNextSetInfo(exercise, {
+    autoIncrement: false,
+    currentWeek: 1,
+  });
+
+  assert.equal(nextSetInfo.defaultWeight, 72.25);
+});

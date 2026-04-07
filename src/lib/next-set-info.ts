@@ -2,6 +2,9 @@ import type { Exercise, TrainingPlan } from '../types.ts';
 import { getNextIncompleteSetIndex } from './exercise-progress.ts';
 import { getPlanExerciseSetCount, getPlanWeight } from './deload.ts';
 
+const roundGeneratedWeight = (weight: number) =>
+  Math.round(weight * 4) / 4;
+
 export function getNextSetInfo(
   exercise: Exercise,
   {
@@ -34,7 +37,7 @@ export function getNextSetInfo(
 
   return {
     actualSetIndex,
-    defaultWeight: getPlanWeight(defaultWeight, plan, currentWeek),
+    defaultWeight: roundGeneratedWeight(getPlanWeight(defaultWeight, plan, currentWeek)),
     defaultReps,
   };
 }
