@@ -168,6 +168,36 @@ test('saveManagedExerciseEdits repairs stale mixed-case schedule entries when th
   assert.equal(result.prs[0].exerciseName, 'BENCH PRESS');
 });
 
+test('saveManagedExerciseEdits renames exercises on rest-marked schedule entries that still retain exercises', () => {
+  const result = saveManagedExerciseEdits({
+    exercises: [createExercise()],
+    plans: [
+      createPlan({
+        schedule: {
+          MON: { type: 'rest', description: 'REST DAY', exercises: ['BENCH PRESS'] },
+          TUE: { type: 'rest', description: 'REST DAY' },
+          WED: { type: 'rest', description: 'REST DAY' },
+          THU: { type: 'rest', description: 'REST DAY' },
+          FRI: { type: 'rest', description: 'REST DAY' },
+          SAT: { type: 'rest', description: 'REST DAY' },
+          SUN: { type: 'rest', description: 'REST DAY' },
+        },
+      }),
+    ],
+    prs: [createPr()],
+    exerciseId: 'exercise-1',
+    nextName: 'Incline Bench',
+    nextPrimaryMuscle: 'Chest',
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.plans[0].schedule.MON.exercises, ['INCLINE BENCH']);
+  assert.equal(result.plans[0].exerciseSetCounts?.['INCLINE BENCH'], 3);
+  assert.equal(result.plans[0].exerciseSetCounts?.['BENCH PRESS'], undefined);
+});
+
 test('deleteManagedExercise removes the exercise from plans and PR records while preserving other set counts', () => {
   const result = deleteManagedExercise({
     exercises: [
@@ -187,4 +217,32 @@ test('deleteManagedExercise removes the exercise from plans and PR records while
   assert.equal(result.plans[0].exerciseSetCounts?.SQUAT, 4);
   assert.equal(result.plans[0].exerciseSetCounts?.['BENCH PRESS'], undefined);
   assert.deepEqual(result.prs.map((pr) => pr.exerciseId), ['exercise-2']);
+});
+
+test('deleteManagedExercise removes exercises from rest-marked schedule entries that still retain exercises', () => {
+  const result = deleteManagedExercise({
+    exercises: [
+      createExercise(),
+      createExercise({ id: 'exercise-2', name: 'SQUAT', primaryMuscle: 'Quads' }),
+    ],
+    plans: [
+      createPlan({
+        schedule: {
+          MON: { type: 'rest', description: 'REST DAY', exercises: ['BENCH PRESS', 'SQUAT'] },
+          TUE: { type: 'rest', description: 'REST DAY' },
+          WED: { type: 'rest', description: 'REST DAY' },
+          THU: { type: 'rest', description: 'REST DAY' },
+          FRI: { type: 'rest', description: 'REST DAY' },
+          SAT: { type: 'rest', description: 'REST DAY' },
+          SUN: { type: 'rest', description: 'REST DAY' },
+        },
+      }),
+    ],
+    prs: [createPr()],
+    exerciseId: 'exercise-1',
+  });
+
+  assert.deepEqual(result.plans[0].schedule.MON.exercises, ['SQUAT']);
+  assert.equal(result.plans[0].exerciseSetCounts?.SQUAT, 4);
+  assert.equal(result.plans[0].exerciseSetCounts?.['BENCH PRESS'], undefined);
 });

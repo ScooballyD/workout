@@ -3,3 +3,6 @@
 # Current tasks
 
 ## Completed tasks
+1. [P3] The Settings UNIT toggle now uses the same visual on/off direction as the other default-enabled toggles while still preserving `lbs` as the default unit and leaving conversion behavior unchanged.
+2. [P2] Today's workout list now deduplicates repeated scheduled exercise names before resolving exercise records, preserving first-occurrence order while preventing mirrored cards with shared state.
+3. [P2] Schedule rename/delete helpers now update any plan entry that still has an `exercises` array, so stale exercise names do not survive on rest-marked days and reappear later.

@@ -69,6 +69,7 @@ import {
   deleteManagedExercise,
   saveManagedExerciseEdits,
 } from './lib/exercise-management.ts';
+import { buildTodayExercises } from './lib/today-exercises.ts';
 import { completeWorkoutExercises } from './lib/workout-completion';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
@@ -1304,9 +1305,9 @@ const SettingsPage = ({
           <span className="text-xl font-bold uppercase tracking-wider">UNIT ({settings.unit.toUpperCase()})</span>
           <button 
             onClick={onToggleUnit}
-            className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.unit === 'lbs' ? "bg-muted" : "bg-primary")}
+            className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.unit === 'lbs' ? "bg-primary" : "bg-muted")}
           >
-            <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.unit === 'lbs' ? "left-1" : "left-11")} />
+            <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.unit === 'lbs' ? "left-11" : "left-1")} />
           </button>
         </div>
 
@@ -1848,9 +1849,7 @@ export default function App() {
   
   // Preserve the plan-authored order and skip missing exercise records safely.
   const todayExercises = todaySchedule
-    ? (todaySchedule.exercises ?? []).map((exerciseName) =>
-        exercises.find((exercise) => exercise.name === exerciseName)
-      ).filter((exercise): exercise is Exercise => Boolean(exercise))
+    ? buildTodayExercises(todaySchedule.exercises ?? [], exercises)
     : [];
 
   return (

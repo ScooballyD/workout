@@ -36,7 +36,7 @@ const renamePlanScheduleExercises = (
 ): TrainingPlan['schedule'] =>
   Object.fromEntries(
     Object.entries(schedule).map(([day, entry]) => {
-      if (entry.type !== 'workout' || !entry.exercises) {
+      if (!entry.exercises) {
         return [day, entry];
       }
 
@@ -61,7 +61,7 @@ const removeExerciseFromPlanSchedule = (
 ): TrainingPlan['schedule'] =>
   Object.fromEntries(
     Object.entries(schedule).map(([day, entry]) => {
-      if (entry.type !== 'workout' || !entry.exercises) {
+      if (!entry.exercises) {
         return [day, entry];
       }
 
