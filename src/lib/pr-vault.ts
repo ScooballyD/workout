@@ -1,9 +1,10 @@
-import type { Exercise, PR } from '../types';
+import type { Exercise, PR, TrainingPlan } from '../types';
 import {
   PRIMARY_MUSCLE_GROUPS,
   normalizePrimaryMuscleGroup,
   type PrimaryMuscleGroup,
 } from './exercise-tags.ts';
+import { isDeloadWeek } from './deload.ts';
 
 export const ALL_PR_FILTER = 'ALL';
 
@@ -80,6 +81,36 @@ const resolvePrMuscleGroup = (
   return normalizePrimaryMuscleGroup(undefined);
 };
 
+const getLatestPrActivityDate = (pr: PR) => {
+  let latestDate = pr.date;
+
+  for (const entry of pr.history) {
+    if (entry.date > latestDate) {
+      latestDate = entry.date;
+    }
+  }
+
+  return latestDate;
+};
+
+const comparePrRecency = (left: PR, right: PR) => {
+  const latestLeft = getLatestPrActivityDate(left);
+  const latestRight = getLatestPrActivityDate(right);
+
+  if (latestLeft !== latestRight) {
+    return latestLeft < latestRight ? 1 : -1;
+  }
+
+  const normalizedNameComparison = left.exerciseName.localeCompare(right.exerciseName, undefined, {
+    sensitivity: 'base',
+  });
+  if (normalizedNameComparison !== 0) {
+    return normalizedNameComparison;
+  }
+
+  return left.exerciseId.localeCompare(right.exerciseId);
+};
+
 export const getPrFilterOptions = (prs: PR[], exercises: Exercise[]) => {
   const seen = new Set<PrimaryMuscleGroup>();
   const exerciseLookup = buildExerciseLookup(exercises);
@@ -111,9 +142,72 @@ export const filterPrsByMuscleGroup = (
     getMuscleGroupFilters(getPrFilterOptions(prs, exercises))
   );
 
-  return prs.filter(pr =>
-    normalizedSelection.has(normalizeFilterKey(resolvePrMuscleGroup(pr, exerciseLookup)))
-  );
+  return prs
+    .filter(pr =>
+      normalizedSelection.has(normalizeFilterKey(resolvePrMuscleGroup(pr, exerciseLookup)))
+    )
+    .sort(comparePrRecency);
+};
+
+export const applyWorkoutPrUpdates = ({
+  prs,
+  exercises,
+  completedExerciseNames,
+  date,
+  plan,
+  week,
+}: {
+  prs: PR[];
+  exercises: Exercise[];
+  completedExerciseNames: string[];
+  date: string;
+  plan?: TrainingPlan;
+  week: number;
+}) => {
+  if (isDeloadWeek(plan, week)) {
+    return prs;
+  }
+
+  let updatedPrs = [...prs];
+
+  exercises.forEach(exercise => {
+    const wasCompletedToday = completedExerciseNames.includes(exercise.name);
+    if (!wasCompletedToday || !exercise.logs.some(log => log?.completed)) {
+      return;
+    }
+
+    const maxWeight = Math.max(...exercise.logs.filter(log => log?.completed).map(log => log.weight));
+    const existingPrIndex = updatedPrs.findIndex(
+      pr => pr.exerciseName.toUpperCase() === exercise.name.toUpperCase()
+    );
+
+    if (existingPrIndex >= 0) {
+      const existingPr = updatedPrs[existingPrIndex];
+      const isNewPr = maxWeight > existingPr.weight;
+      const newHistory = [...existingPr.history, { weight: maxWeight, date }];
+      if (newHistory.length > 60) {
+        newHistory.shift();
+      }
+
+      updatedPrs[existingPrIndex] = {
+        ...existingPr,
+        weight: isNewPr ? maxWeight : existingPr.weight,
+        date: isNewPr ? date : existingPr.date,
+        history: newHistory,
+      };
+      return;
+    }
+
+    updatedPrs.push({
+      exerciseId: exercise.id,
+      exerciseName: exercise.name,
+      weight: maxWeight,
+      date,
+      history: [{ weight: maxWeight, date }],
+    });
+  });
+
+  return updatedPrs;
 };
 
 export const getPrChartDomain = (history: PR['history']) => {

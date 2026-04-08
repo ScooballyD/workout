@@ -47,6 +47,7 @@ import {
 } from './lib/exercise-log-inputs';
 import { getNextSetDisplayValues, getNextSetInfo } from './lib/next-set-info';
 import { getLocalCalendarDateString } from './lib/local-date';
+import { applyWorkoutPrUpdates } from './lib/pr-vault';
 import {
   addExerciseToPlanDay,
   buildPlanExerciseDraft,
@@ -64,6 +65,10 @@ import {
   replacePlanById,
   restartPlanProgress,
 } from './lib/plans.ts';
+import {
+  deleteManagedExercise,
+  saveManagedExerciseEdits,
+} from './lib/exercise-management.ts';
 import { completeWorkoutExercises } from './lib/workout-completion';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
@@ -1041,9 +1046,230 @@ const CreatePlan = ({
   );
 };
 
-const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExportData, onImportData }: { settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>>, onToggleUnit: () => void, onWipeData: () => void, onExportData: () => void, onImportData: (data: ImportedBackupData) => void }) => {
+const ManageExercisesScreen = ({
+  exercises,
+  onSelectExercise,
+  onClose,
+}: {
+  exercises: Exercise[];
+  onSelectExercise: (exerciseId: string) => void;
+  onClose: () => void;
+}) => (
+  <motion.div
+    initial={{ x: '100%' }}
+    animate={{ x: 0 }}
+    exit={{ x: '100%' }}
+    className="fixed inset-0 z-[70] bg-black flex flex-col overflow-y-auto"
+  >
+    <header className="sticky top-0 z-50 bg-black border-b-2 border-muted px-4 h-16 flex items-center justify-between">
+      <button onClick={onClose} className="text-white size-12 flex items-center justify-center border-2 border-transparent hover:border-muted rounded transition-colors">
+        <ArrowLeft size={24} />
+      </button>
+      <h1 className="font-display text-primary text-xl uppercase">MANAGE EXERCISES</h1>
+      <div className="w-12" />
+    </header>
+
+    <main className="flex-1 p-4 pb-24 flex flex-col gap-3">
+      {exercises.length === 0 ? (
+        <div className="border-2 border-dashed border-muted rounded-sm p-8 text-center">
+          <p className="text-muted font-bold tracking-widest uppercase">NO SAVED EXERCISES</p>
+        </div>
+      ) : (
+        exercises.map((exercise) => (
+          <button
+            key={exercise.id}
+            onClick={() => onSelectExercise(exercise.id)}
+            className="w-full bg-surface border-2 border-muted px-4 py-4 flex items-center justify-between text-left hover:border-primary transition-none"
+          >
+            <div>
+              <div className="text-lg font-bold uppercase text-text-main">{exercise.name}</div>
+              <div className="text-[10px] font-mono uppercase text-muted tracking-widest mt-1">
+                {exercise.primaryMuscle}
+              </div>
+            </div>
+            <ChevronRight size={20} className="text-primary" />
+          </button>
+        ))
+      )}
+    </main>
+  </motion.div>
+);
+
+const EditExerciseScreen = ({
+  exercise,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  exercise: Exercise;
+  onClose: () => void;
+  onSave: (args: {
+    exerciseId: string;
+    nextName: string;
+    nextPrimaryMuscle: PrimaryMuscleGroup;
+  }) => { ok: true } | { ok: false; error: string };
+  onDelete: (exerciseId: string) => void;
+}) => {
+  const [name, setName] = useState(exercise.name);
+  const [primaryMuscle, setPrimaryMuscle] = useState<PrimaryMuscleGroup>(exercise.primaryMuscle);
+  const [error, setError] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  useEffect(() => {
+    setName(exercise.name);
+    setPrimaryMuscle(exercise.primaryMuscle);
+    setError('');
+    setShowDeleteConfirm(false);
+  }, [exercise]);
+
+  const handleSave = () => {
+    const result = onSave({
+      exerciseId: exercise.id,
+      nextName: name,
+      nextPrimaryMuscle: primaryMuscle,
+    });
+
+    if ('error' in result) {
+      setError(result.error);
+      return;
+    }
+
+    onClose();
+  };
+
+  return (
+    <motion.div
+      initial={{ x: '100%' }}
+      animate={{ x: 0 }}
+      exit={{ x: '100%' }}
+      className="fixed inset-0 z-[80] bg-black flex flex-col overflow-y-auto"
+    >
+      <header className="sticky top-0 z-50 bg-black border-b-2 border-muted px-4 h-16 flex items-center justify-between">
+        <button onClick={onClose} className="text-white size-12 flex items-center justify-center border-2 border-transparent hover:border-muted rounded transition-colors">
+          <ArrowLeft size={24} />
+        </button>
+        <h1 className="font-display text-primary text-xl uppercase">EDIT EXERCISE</h1>
+        <button
+          onClick={handleSave}
+          className="text-primary font-bold text-sm tracking-widest hover:bg-primary hover:text-black transition-colors px-3 py-1 border-2 border-transparent uppercase"
+        >
+          SAVE
+        </button>
+      </header>
+
+      <main className="flex-1 p-4 pb-24 flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <label className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted">NAME</label>
+          <input
+            className="w-full bg-surface border-2 border-muted p-4 text-xl font-black tracking-tight focus:outline-none focus:border-primary uppercase"
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (error) {
+                setError('');
+              }
+            }}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted">PRIMARY MUSCLE</label>
+          <select
+            className="w-full bg-surface border-2 border-muted p-4 text-sm font-mono uppercase focus:outline-none focus:border-primary"
+            value={primaryMuscle}
+            onChange={(event) => setPrimaryMuscle(event.target.value as PrimaryMuscleGroup)}
+          >
+            {PRIMARY_MUSCLE_GROUPS.map((muscle) => (
+              <option key={muscle} value={muscle}>
+                {muscle}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {error ? (
+          <p className="text-danger text-xs font-mono uppercase tracking-[0.2em]">{error}</p>
+        ) : null}
+
+        <div className="mt-auto border-t-2 border-muted pt-6">
+          <p className="text-[10px] font-mono text-danger uppercase tracking-[0.2em] mb-4">Danger Zone</p>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="w-full h-14 border-2 border-danger text-danger font-bold tracking-widest uppercase hover:bg-danger hover:text-black transition-none"
+          >
+            DELETE EXERCISE
+          </button>
+        </div>
+      </main>
+
+      <AnimatePresence>
+        {showDeleteConfirm ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
+          >
+            <div className="bg-surface border-4 border-danger p-8 w-full max-w-sm text-center">
+              <h3 className="font-display text-4xl text-danger mb-4">DELETE EXERCISE</h3>
+              <p className="font-mono text-sm mb-8 uppercase">
+                THIS REMOVES {exercise.name} FROM SAVED EXERCISES, PLAN SCHEDULES, AND PR VAULT.
+              </p>
+              <div className="flex flex-col gap-4">
+                <button
+                  onClick={() => {
+                    onDelete(exercise.id);
+                    onClose();
+                  }}
+                  className="brutal-btn bg-danger border-black text-black shadow-none"
+                >
+                  CONFIRM DELETE
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="font-display text-xl text-text-main"
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
+
+const SettingsPage = ({
+  settings,
+  setSettings,
+  exercises,
+  onToggleUnit,
+  onWipeData,
+  onExportData,
+  onImportData,
+  onSaveExerciseEdits,
+  onDeleteExercise,
+}: {
+  settings: Settings;
+  setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+  exercises: Exercise[];
+  onToggleUnit: () => void;
+  onWipeData: () => void;
+  onExportData: () => void;
+  onImportData: (data: ImportedBackupData) => void;
+  onSaveExerciseEdits: (args: {
+    exerciseId: string;
+    nextName: string;
+    nextPrimaryMuscle: PrimaryMuscleGroup;
+  }) => { ok: true } | { ok: false; error: string };
+  onDeleteExercise: (exerciseId: string) => void;
+}) => {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const [showManageExercises, setShowManageExercises] = useState(false);
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const editingExercise = exercises.find((exercise) => exercise.id === editingExerciseId) ?? null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1104,6 +1330,16 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExpor
           </button>
         </div>
 
+        <h2 className="text-sm text-muted uppercase tracking-widest px-4 mb-2 mt-12 font-mono">EXERCISES</h2>
+
+        <button
+          onClick={() => setShowManageExercises(true)}
+          className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none"
+        >
+          <span className="text-xl font-bold uppercase tracking-wider group-hover:text-primary">MANAGE EXERCISES</span>
+          <ChevronRight size={24} className="text-primary" />
+        </button>
+
         <h2 className="text-sm text-muted uppercase tracking-widest px-4 mb-2 mt-12 font-mono">DATA</h2>
         
         <button onClick={onExportData} className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none">
@@ -1157,6 +1393,27 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExpor
             </div>
           </motion.div>
         )}
+        {showManageExercises ? (
+          <ManageExercisesScreen
+            exercises={exercises}
+            onSelectExercise={setEditingExerciseId}
+            onClose={() => {
+              setShowManageExercises(false);
+              setEditingExerciseId(null);
+            }}
+          />
+        ) : null}
+        {showManageExercises && editingExercise ? (
+          <EditExerciseScreen
+            exercise={editingExercise}
+            onClose={() => setEditingExerciseId(null)}
+            onSave={onSaveExerciseEdits}
+            onDelete={(exerciseId) => {
+              onDeleteExercise(exerciseId);
+              setEditingExerciseId(null);
+            }}
+          />
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );
@@ -1476,45 +1733,19 @@ export default function App() {
     const currentTodayExerciseNames = currentTodaySchedule?.exercises || [];
 
     const today = getLocalCalendarDateString();
+    const currentWeek = currentActivePlan?.currentWeek ?? 1;
 
     // Update PRs with the highest weight logged today for each exercise
-    setPrs(prevPrs => {
-      let updatedPrs = [...prevPrs];
-      
-      exercises.forEach(ex => {
-        const wasInToday = currentTodayExerciseNames.includes(ex.name);
-        if (wasInToday && ex.logs.some(l => l?.completed)) {
-          const maxWeight = Math.max(...ex.logs.filter(l => l?.completed).map(l => l.weight));
-          
-          const existingPrIndex = updatedPrs.findIndex(p => p.exerciseName.toUpperCase() === ex.name.toUpperCase());
-          
-          if (existingPrIndex >= 0) {
-            const existingPr = updatedPrs[existingPrIndex];
-            const isNewPr = maxWeight > existingPr.weight;
-            const newHistory = [...existingPr.history, { weight: maxWeight, date: today }];
-            if (newHistory.length > 60) {
-              newHistory.shift();
-            }
-            updatedPrs[existingPrIndex] = {
-              ...existingPr,
-              weight: isNewPr ? maxWeight : existingPr.weight,
-              date: isNewPr ? today : existingPr.date,
-              history: newHistory
-            };
-          } else {
-            updatedPrs.push({
-              exerciseId: ex.id,
-              exerciseName: ex.name,
-              weight: maxWeight,
-              date: today,
-              history: [{ weight: maxWeight, date: today }]
-            });
-          }
-        }
-      });
-      
-      return updatedPrs;
-    });
+    setPrs(prevPrs =>
+      applyWorkoutPrUpdates({
+        prs: prevPrs,
+        exercises,
+        completedExerciseNames: currentTodayExerciseNames,
+        date: today,
+        plan: currentActivePlan,
+        week: currentWeek,
+      })
+    );
 
     // Reset only the completed day's exercise logs; preserve unfinished logs on other days.
     setExercises(prev => completeWorkoutExercises(prev, currentTodayExerciseNames));
@@ -1544,6 +1775,53 @@ export default function App() {
     setPlans(data.plans);
     setActivePlanId(data.activePlanId);
     setSettings(data.settings);
+  };
+
+  const applyExerciseManagementState = (nextState: {
+    exercises: Exercise[];
+    plans: TrainingPlan[];
+    prs: PR[];
+  }) => {
+    setExercises(nextState.exercises);
+    setPlans(nextState.plans);
+    setPrs(nextState.prs);
+  };
+
+  const handleSaveExerciseEdits = ({
+    exerciseId,
+    nextName,
+    nextPrimaryMuscle,
+  }: {
+    exerciseId: string;
+    nextName: string;
+    nextPrimaryMuscle: PrimaryMuscleGroup;
+  }): { ok: true } | { ok: false; error: string } => {
+    const result = saveManagedExerciseEdits({
+      exercises,
+      plans,
+      prs,
+      exerciseId,
+      nextName,
+      nextPrimaryMuscle,
+    });
+
+    if (!result.ok) {
+      return result;
+    }
+
+    applyExerciseManagementState(result);
+    return { ok: true };
+  };
+
+  const handleDeleteExercise = (exerciseId: string) => {
+    applyExerciseManagementState(
+      deleteManagedExercise({
+        exercises,
+        plans,
+        prs,
+        exerciseId,
+      })
+    );
   };
 
   const handleWipeData = () => {
@@ -1675,7 +1953,22 @@ export default function App() {
               <PRVaultPage prs={prs} settings={settings} exercises={exercises} />
             </React.Suspense>
           } />
-          <Route path="/settings" element={<SettingsPage settings={settings} setSettings={setSettings} onToggleUnit={handleToggleUnit} onWipeData={handleWipeData} onExportData={handleExportData} onImportData={handleImportData} />} />
+          <Route
+            path="/settings"
+            element={
+              <SettingsPage
+                settings={settings}
+                setSettings={setSettings}
+                exercises={exercises}
+                onToggleUnit={handleToggleUnit}
+                onWipeData={handleWipeData}
+                onExportData={handleExportData}
+                onImportData={handleImportData}
+                onSaveExerciseEdits={handleSaveExerciseEdits}
+                onDeleteExercise={handleDeleteExercise}
+              />
+            }
+          />
         </Routes>
         <BottomNav />
       </div>
