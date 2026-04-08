@@ -1,5 +1,11 @@
 import type { Exercise, PR, Settings, SetLog, TrainingPlan } from '../types';
 import { normalizePrimaryMuscleGroup } from './exercise-tags.ts';
+import {
+  buildPlanExerciseSetCounts,
+  normalizePlanExerciseName,
+} from './plans.ts';
+
+const PLAN_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'lbs',
@@ -213,16 +219,49 @@ const normalizeSchedule = (value: unknown): TrainingPlan['schedule'] | null => {
     return null;
   }
 
+  if (Object.keys(value).length !== PLAN_DAYS.length) {
+    return null;
+  }
+
   const schedule: TrainingPlan['schedule'] = {};
-  for (const [day, item] of Object.entries(value)) {
-    const normalizedDay = normalizePlanDay(item);
+  for (const day of PLAN_DAYS) {
+    if (!(day in value)) {
+      return null;
+    }
+
+    const normalizedDay = normalizePlanDay(value[day]);
     if (!normalizedDay) {
       return null;
     }
+
     schedule[day] = normalizedDay;
   }
 
   return schedule;
+};
+
+const normalizePlanExerciseSetCounts = (
+  value: unknown,
+  schedule: TrainingPlan['schedule']
+): Record<string, number> | null => {
+  if (value === undefined) {
+    return buildPlanExerciseSetCounts(schedule);
+  }
+
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const counts: Record<string, number> = {};
+  for (const [exerciseName, count] of Object.entries(value)) {
+    if (!isPositiveInteger(count)) {
+      return null;
+    }
+
+    counts[normalizePlanExerciseName(exerciseName)] = count;
+  }
+
+  return buildPlanExerciseSetCounts(schedule, counts);
 };
 
 const normalizePlanDeload = (
@@ -267,12 +306,21 @@ const normalizePlan = (value: unknown): TrainingPlan | null => {
     return null;
   }
 
+  const exerciseSetCounts = normalizePlanExerciseSetCounts(
+    value.exerciseSetCounts,
+    schedule
+  );
+  if (!exerciseSetCounts) {
+    return null;
+  }
+
   const plan: TrainingPlan = {
     id: value.id,
     name: value.name,
     durationWeeks,
     currentWeek,
     currentDay,
+    exerciseSetCounts,
     schedule,
   };
 

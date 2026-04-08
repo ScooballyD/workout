@@ -1,4 +1,10 @@
-import type { PR } from '../types';
+import type { Exercise, PR, TrainingPlan } from '../types';
+import {
+  PRIMARY_MUSCLE_GROUPS,
+  normalizePrimaryMuscleGroup,
+  type PrimaryMuscleGroup,
+} from './exercise-tags.ts';
+import { isDeloadWeek } from './deload.ts';
 
 export const ALL_PR_FILTER = 'ALL';
 
@@ -18,49 +24,190 @@ const getMinimumVisibleRange = (maxWeight: number) => {
   return 20;
 };
 
-const normalizeExerciseName = (value: string) => value.trim().toUpperCase();
+const normalizeFilterLabel = (value: string) => value.trim();
 
-const getWorkoutFilters = (filters: string[]) => filters.filter(filter => normalizeExerciseName(filter) !== ALL_PR_FILTER);
+const normalizeFilterKey = (value: string) => normalizeFilterLabel(value).toUpperCase();
 
-const normalizeSelection = (selectedFilters: string[]) => {
+const getMuscleGroupFilters = (filters: string[]) =>
+  filters.filter(filter => normalizeFilterKey(filter) !== ALL_PR_FILTER);
+
+const normalizeSelection = (selectedFilters: string[], availableFilters: string[]) => {
   const normalized = new Set<string>();
+  const availableByKey = new Map(
+    availableFilters
+      .filter(filter => normalizeFilterKey(filter) !== ALL_PR_FILTER)
+      .map(filter => [normalizeFilterKey(filter), filter])
+  );
 
   for (const filter of selectedFilters) {
-    const normalizedFilter = normalizeExerciseName(filter);
-    if (!normalizedFilter || normalizedFilter === ALL_PR_FILTER) {
+    const normalizedFilter = availableByKey.get(normalizeFilterKey(filter));
+    if (!normalizedFilter) {
       continue;
     }
 
-    normalized.add(normalizedFilter);
+    normalized.add(normalizeFilterKey(normalizedFilter));
   }
 
   return normalized;
 };
 
-export const getPrFilterOptions = (prs: PR[]) => {
-  const seen = new Set<string>();
-  const filters = [ALL_PR_FILTER];
+const buildExerciseLookup = (exercises: Exercise[]) => {
+  const byId = new Map<string, PrimaryMuscleGroup>();
+  const byName = new Map<string, PrimaryMuscleGroup>();
+
+  for (const exercise of exercises) {
+    const muscleGroup = normalizePrimaryMuscleGroup(exercise.primaryMuscle);
+    byId.set(exercise.id, muscleGroup);
+    byName.set(exercise.name.trim().toUpperCase(), muscleGroup);
+  }
+
+  return { byId, byName };
+};
+
+const resolvePrMuscleGroup = (
+  pr: PR,
+  exerciseLookup: ReturnType<typeof buildExerciseLookup>
+) => {
+  const byId = exerciseLookup.byId.get(pr.exerciseId);
+  if (byId) {
+    return byId;
+  }
+
+  const byName = exerciseLookup.byName.get(pr.exerciseName.trim().toUpperCase());
+  if (byName) {
+    return byName;
+  }
+
+  return normalizePrimaryMuscleGroup(undefined);
+};
+
+const getLatestPrActivityDate = (pr: PR) => {
+  let latestDate = pr.date;
+
+  for (const entry of pr.history) {
+    if (entry.date > latestDate) {
+      latestDate = entry.date;
+    }
+  }
+
+  return latestDate;
+};
+
+const comparePrRecency = (left: PR, right: PR) => {
+  const latestLeft = getLatestPrActivityDate(left);
+  const latestRight = getLatestPrActivityDate(right);
+
+  if (latestLeft !== latestRight) {
+    return latestLeft < latestRight ? 1 : -1;
+  }
+
+  const normalizedNameComparison = left.exerciseName.localeCompare(right.exerciseName, undefined, {
+    sensitivity: 'base',
+  });
+  if (normalizedNameComparison !== 0) {
+    return normalizedNameComparison;
+  }
+
+  return left.exerciseId.localeCompare(right.exerciseId);
+};
+
+export const getPrFilterOptions = (prs: PR[], exercises: Exercise[]) => {
+  const seen = new Set<PrimaryMuscleGroup>();
+  const exerciseLookup = buildExerciseLookup(exercises);
 
   for (const pr of prs) {
-    const normalizedName = normalizeExerciseName(pr.exerciseName);
-    if (!normalizedName || seen.has(normalizedName)) {
+    const muscleGroup = resolvePrMuscleGroup(pr, exerciseLookup);
+    if (seen.has(muscleGroup)) {
       continue;
     }
 
-    seen.add(normalizedName);
-    filters.push(pr.exerciseName);
+    seen.add(muscleGroup);
   }
 
-  return filters;
+  return [ALL_PR_FILTER, ...PRIMARY_MUSCLE_GROUPS.filter(group => seen.has(group))];
 };
 
-export const filterPrsByExercise = (prs: PR[], selectedFilters: string[]) => {
+export const filterPrsByMuscleGroup = (
+  prs: PR[],
+  selectedFilters: string[],
+  exercises: Exercise[]
+) => {
   if (selectedFilters.length === 0) {
     return [];
   }
 
-  const normalizedSelection = normalizeSelection(selectedFilters);
-  return prs.filter(pr => normalizedSelection.has(normalizeExerciseName(pr.exerciseName)));
+  const exerciseLookup = buildExerciseLookup(exercises);
+  const normalizedSelection = normalizeSelection(
+    selectedFilters,
+    getMuscleGroupFilters(getPrFilterOptions(prs, exercises))
+  );
+
+  return prs
+    .filter(pr =>
+      normalizedSelection.has(normalizeFilterKey(resolvePrMuscleGroup(pr, exerciseLookup)))
+    )
+    .sort(comparePrRecency);
+};
+
+export const applyWorkoutPrUpdates = ({
+  prs,
+  exercises,
+  completedExerciseNames,
+  date,
+  plan,
+  week,
+}: {
+  prs: PR[];
+  exercises: Exercise[];
+  completedExerciseNames: string[];
+  date: string;
+  plan?: TrainingPlan;
+  week: number;
+}) => {
+  if (isDeloadWeek(plan, week)) {
+    return prs;
+  }
+
+  let updatedPrs = [...prs];
+
+  exercises.forEach(exercise => {
+    const wasCompletedToday = completedExerciseNames.includes(exercise.name);
+    if (!wasCompletedToday || !exercise.logs.some(log => log?.completed)) {
+      return;
+    }
+
+    const maxWeight = Math.max(...exercise.logs.filter(log => log?.completed).map(log => log.weight));
+    const existingPrIndex = updatedPrs.findIndex(
+      pr => pr.exerciseName.toUpperCase() === exercise.name.toUpperCase()
+    );
+
+    if (existingPrIndex >= 0) {
+      const existingPr = updatedPrs[existingPrIndex];
+      const isNewPr = maxWeight > existingPr.weight;
+      const newHistory = [...existingPr.history, { weight: maxWeight, date }];
+      if (newHistory.length > 60) {
+        newHistory.shift();
+      }
+
+      updatedPrs[existingPrIndex] = {
+        ...existingPr,
+        weight: isNewPr ? maxWeight : existingPr.weight,
+        date: isNewPr ? date : existingPr.date,
+        history: newHistory,
+      };
+      return;
+    }
+
+    updatedPrs.push({
+      exerciseId: exercise.id,
+      exerciseName: exercise.name,
+      weight: maxWeight,
+      date,
+      history: [{ weight: maxWeight, date }],
+    });
+  });
+
+  return updatedPrs;
 };
 
 export const getPrChartDomain = (history: PR['history']) => {
@@ -111,9 +258,9 @@ export const togglePrExerciseFilter = (
   filter: string,
   availableFilters: string[],
 ) => {
-  const workoutFilters = getWorkoutFilters(availableFilters);
-  const normalizedSelection = normalizeSelection(selectedFilters);
-  const normalizedFilter = normalizeExerciseName(filter);
+  const workoutFilters = getMuscleGroupFilters(availableFilters);
+  const normalizedSelection = normalizeSelection(selectedFilters, workoutFilters);
+  const normalizedFilter = normalizeFilterKey(filter);
 
   if (normalizedFilter === ALL_PR_FILTER) {
     if (workoutFilters.length > 0 && normalizedSelection.size === workoutFilters.length) {
@@ -123,15 +270,15 @@ export const togglePrExerciseFilter = (
     return workoutFilters;
   }
 
-  if (!workoutFilters.some(option => normalizeExerciseName(option) === normalizedFilter)) {
-    return Array.from(normalizedSelection);
+  if (!workoutFilters.some(option => normalizeFilterKey(option) === normalizedFilter)) {
+    return workoutFilters.filter(option => normalizedSelection.has(normalizeFilterKey(option)));
   }
 
   if (normalizedSelection.has(normalizedFilter)) {
     normalizedSelection.delete(normalizedFilter);
-    return workoutFilters.filter(option => normalizedSelection.has(normalizeExerciseName(option)));
+    return workoutFilters.filter(option => normalizedSelection.has(normalizeFilterKey(option)));
   }
 
   normalizedSelection.add(normalizedFilter);
-  return workoutFilters.filter(option => normalizedSelection.has(normalizeExerciseName(option)));
+  return workoutFilters.filter(option => normalizedSelection.has(normalizeFilterKey(option)));
 };

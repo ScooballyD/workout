@@ -45,7 +45,9 @@ import {
   syncExerciseLogInputValues,
   type ExerciseLogInputValue,
 } from './lib/exercise-log-inputs';
-import { getNextSetInfo } from './lib/next-set-info';
+import { getNextSetDisplayValues, getNextSetInfo } from './lib/next-set-info';
+import { getLocalCalendarDateString } from './lib/local-date';
+import { applyWorkoutPrUpdates } from './lib/pr-vault';
 import {
   addExerciseToPlanDay,
   buildPlanExerciseDraft,
@@ -56,11 +58,18 @@ import {
 import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
 import { getPlanExerciseSetCount, isDeloadWeek } from './lib/deload.ts';
 import {
+  buildPlanExerciseSetCounts,
   deletePlanById,
   mergePlanEdits,
+  normalizePlanExerciseName,
   replacePlanById,
   restartPlanProgress,
 } from './lib/plans.ts';
+import {
+  deleteManagedExercise,
+  saveManagedExerciseEdits,
+} from './lib/exercise-management.ts';
+import { buildTodayExercises } from './lib/today-exercises.ts';
 import { completeWorkoutExercises } from './lib/workout-completion';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
@@ -106,6 +115,61 @@ const createPlanEditorSchedule = (
     return schedule;
   }, {});
 
+const formatMuscleGroupLabel = (group: PrimaryMuscleGroup) =>
+  group === 'Other' ? 'ACCESSORY' : group.toUpperCase();
+
+const buildPlanFocusSummary = (
+  schedule: Record<string, PlanEditorDay>,
+  exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>
+) => {
+  const counts = PRIMARY_MUSCLE_GROUPS.reduce<Record<PrimaryMuscleGroup, number>>(
+    (accumulator, group) => {
+      accumulator[group] = 0;
+      return accumulator;
+    },
+    {} as Record<PrimaryMuscleGroup, number>
+  );
+  let totalExercises = 0;
+
+  Object.values(schedule).forEach((day) => {
+    if (day.type !== 'workout') {
+      return;
+    }
+
+    day.exercises.forEach((exerciseName) => {
+      const normalizedName = normalizePlanExerciseName(exerciseName);
+      const primaryMuscle =
+        exercisePrimaryMuscles[normalizedName] ?? DEFAULT_PRIMARY_MUSCLE_GROUP;
+
+      counts[primaryMuscle] += 1;
+      totalExercises += 1;
+    });
+  });
+
+  if (totalExercises === 0) {
+    return 'ADD EXERCISES TO SEE FOCUS';
+  }
+
+  const rankedMuscles = PRIMARY_MUSCLE_GROUPS
+    .map((group, index) => ({
+      group,
+      count: counts[group],
+      index,
+    }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count || left.index - right.index);
+
+  const topMuscles = rankedMuscles.slice(0, 2);
+
+  if (topMuscles.length === 1) {
+    return `${formatMuscleGroupLabel(topMuscles[0].group)} FOCUS`;
+  }
+
+  return `${topMuscles.map((entry) => formatMuscleGroupLabel(entry.group)).join(' / ')} ${
+    rankedMuscles.length > topMuscles.length ? 'MIX' : 'FOCUS'
+  }`;
+};
+
 // --- Components ---
 
 const BottomNav = () => {
@@ -144,11 +208,13 @@ const BottomNav = () => {
 const DailyGrind = ({ 
   exercises, 
   activePlan,
+  unit,
   onLogSet,
   onCompleteWorkout 
 }: { 
   exercises: Exercise[], 
   activePlan?: TrainingPlan,
+  unit: Settings['unit'],
   onLogSet: (id: string, setIndex: number, weight: number, reps: number) => void,
   onCompleteWorkout: () => void 
 }) => {
@@ -200,8 +266,12 @@ const DailyGrind = ({
           const completed = isCompleted(ex);
           const isActive = idx === activeIndex;
           const setCount = getExerciseSetCount(ex);
-          const nextSetInfo = getNextSetInfo(ex, { autoIncrement, currentWeek, plan: activePlan });
-          const displayReps = completed ? ex.reps : nextSetInfo.defaultReps || ex.reps;
+          const nextSetDisplay = getNextSetDisplayValues(ex, {
+            autoIncrement,
+            currentWeek,
+            plan: activePlan,
+            unit,
+          });
           
           return (
             <Link 
@@ -234,8 +304,16 @@ const DailyGrind = ({
               <div className="flex justify-between items-end border-t border-muted pt-3">
                 <div className="flex gap-4 text-sm font-bold text-muted">
                   <div>
+                    <span className="block text-xs text-muted/60 mb-1">WEIGHT</span>
+                    <span className={cn("text-lg", (isActive || completed) ? "text-text-main" : "text-muted")}>
+                      {nextSetDisplay.weight}
+                    </span>
+                  </div>
+                  <div>
                     <span className="block text-xs text-muted/60 mb-1">REPS</span>
-                    <span className={cn("text-lg", (isActive || completed) ? "text-text-main" : "text-muted")}>{displayReps}</span>
+                    <span className={cn("text-lg", (isActive || completed) ? "text-text-main" : "text-muted")}>
+                      {nextSetDisplay.reps}
+                    </span>
                   </div>
                 </div>
                 <div className="flex gap-1">
@@ -731,19 +809,6 @@ const CreatePlan = ({
       </header>
 
       <main className="flex-grow p-4 space-y-8 max-w-2xl mx-auto w-full">
-        <div className="relative h-48 w-full border-2 border-muted overflow-hidden group">
-          <img 
-            alt="Workout gear" 
-            className="w-full h-full object-cover opacity-50 group-hover:scale-105 transition-transform duration-700" 
-            src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=1000&auto=format&fit=crop"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent"></div>
-          <div className="absolute bottom-4 left-4">
-            <p className="text-[48px] font-display font-black tracking-tighter leading-none text-primary uppercase">KINETIC<br/>VOLT</p>
-          </div>
-        </div>
-
         <section className="space-y-4">
           <div className="flex items-center gap-2">
             <div className="w-1 h-6 bg-primary"></div>
@@ -955,7 +1020,9 @@ const CreatePlan = ({
             <p className="text-lg font-black mt-1 uppercase">
               {(Object.values(schedule) as { type: string }[]).filter(s => s.type === 'workout').length} DAYS/WEEK • {deloadEnabled ? `${duration} + DELOAD` : `${duration} WEEKS`}
             </p>
-            <p className="text-[10px] text-primary mt-2 italic uppercase">INTENSITY: HIGH PERFORMANCE HUD ENABLED</p>
+            <p className="text-[10px] text-primary mt-2 italic uppercase">
+              {buildPlanFocusSummary(schedule, exercisePrimaryMuscles)}
+            </p>
           </div>
         </div>
       </main>
@@ -980,9 +1047,230 @@ const CreatePlan = ({
   );
 };
 
-const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExportData, onImportData }: { settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>>, onToggleUnit: () => void, onWipeData: () => void, onExportData: () => void, onImportData: (data: ImportedBackupData) => void }) => {
+const ManageExercisesScreen = ({
+  exercises,
+  onSelectExercise,
+  onClose,
+}: {
+  exercises: Exercise[];
+  onSelectExercise: (exerciseId: string) => void;
+  onClose: () => void;
+}) => (
+  <motion.div
+    initial={{ x: '100%' }}
+    animate={{ x: 0 }}
+    exit={{ x: '100%' }}
+    className="fixed inset-0 z-[70] bg-black flex flex-col overflow-y-auto"
+  >
+    <header className="sticky top-0 z-50 bg-black border-b-2 border-muted px-4 h-16 flex items-center justify-between">
+      <button onClick={onClose} className="text-white size-12 flex items-center justify-center border-2 border-transparent hover:border-muted rounded transition-colors">
+        <ArrowLeft size={24} />
+      </button>
+      <h1 className="font-display text-primary text-xl uppercase">MANAGE EXERCISES</h1>
+      <div className="w-12" />
+    </header>
+
+    <main className="flex-1 p-4 pb-24 flex flex-col gap-3">
+      {exercises.length === 0 ? (
+        <div className="border-2 border-dashed border-muted rounded-sm p-8 text-center">
+          <p className="text-muted font-bold tracking-widest uppercase">NO SAVED EXERCISES</p>
+        </div>
+      ) : (
+        exercises.map((exercise) => (
+          <button
+            key={exercise.id}
+            onClick={() => onSelectExercise(exercise.id)}
+            className="w-full bg-surface border-2 border-muted px-4 py-4 flex items-center justify-between text-left hover:border-primary transition-none"
+          >
+            <div>
+              <div className="text-lg font-bold uppercase text-text-main">{exercise.name}</div>
+              <div className="text-[10px] font-mono uppercase text-muted tracking-widest mt-1">
+                {exercise.primaryMuscle}
+              </div>
+            </div>
+            <ChevronRight size={20} className="text-primary" />
+          </button>
+        ))
+      )}
+    </main>
+  </motion.div>
+);
+
+const EditExerciseScreen = ({
+  exercise,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  exercise: Exercise;
+  onClose: () => void;
+  onSave: (args: {
+    exerciseId: string;
+    nextName: string;
+    nextPrimaryMuscle: PrimaryMuscleGroup;
+  }) => { ok: true } | { ok: false; error: string };
+  onDelete: (exerciseId: string) => void;
+}) => {
+  const [name, setName] = useState(exercise.name);
+  const [primaryMuscle, setPrimaryMuscle] = useState<PrimaryMuscleGroup>(exercise.primaryMuscle);
+  const [error, setError] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  useEffect(() => {
+    setName(exercise.name);
+    setPrimaryMuscle(exercise.primaryMuscle);
+    setError('');
+    setShowDeleteConfirm(false);
+  }, [exercise]);
+
+  const handleSave = () => {
+    const result = onSave({
+      exerciseId: exercise.id,
+      nextName: name,
+      nextPrimaryMuscle: primaryMuscle,
+    });
+
+    if ('error' in result) {
+      setError(result.error);
+      return;
+    }
+
+    onClose();
+  };
+
+  return (
+    <motion.div
+      initial={{ x: '100%' }}
+      animate={{ x: 0 }}
+      exit={{ x: '100%' }}
+      className="fixed inset-0 z-[80] bg-black flex flex-col overflow-y-auto"
+    >
+      <header className="sticky top-0 z-50 bg-black border-b-2 border-muted px-4 h-16 flex items-center justify-between">
+        <button onClick={onClose} className="text-white size-12 flex items-center justify-center border-2 border-transparent hover:border-muted rounded transition-colors">
+          <ArrowLeft size={24} />
+        </button>
+        <h1 className="font-display text-primary text-xl uppercase">EDIT EXERCISE</h1>
+        <button
+          onClick={handleSave}
+          className="text-primary font-bold text-sm tracking-widest hover:bg-primary hover:text-black transition-colors px-3 py-1 border-2 border-transparent uppercase"
+        >
+          SAVE
+        </button>
+      </header>
+
+      <main className="flex-1 p-4 pb-24 flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <label className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted">NAME</label>
+          <input
+            className="w-full bg-surface border-2 border-muted p-4 text-xl font-black tracking-tight focus:outline-none focus:border-primary uppercase"
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (error) {
+                setError('');
+              }
+            }}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted">PRIMARY MUSCLE</label>
+          <select
+            className="w-full bg-surface border-2 border-muted p-4 text-sm font-mono uppercase focus:outline-none focus:border-primary"
+            value={primaryMuscle}
+            onChange={(event) => setPrimaryMuscle(event.target.value as PrimaryMuscleGroup)}
+          >
+            {PRIMARY_MUSCLE_GROUPS.map((muscle) => (
+              <option key={muscle} value={muscle}>
+                {muscle}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {error ? (
+          <p className="text-danger text-xs font-mono uppercase tracking-[0.2em]">{error}</p>
+        ) : null}
+
+        <div className="mt-auto border-t-2 border-muted pt-6">
+          <p className="text-[10px] font-mono text-danger uppercase tracking-[0.2em] mb-4">Danger Zone</p>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="w-full h-14 border-2 border-danger text-danger font-bold tracking-widest uppercase hover:bg-danger hover:text-black transition-none"
+          >
+            DELETE EXERCISE
+          </button>
+        </div>
+      </main>
+
+      <AnimatePresence>
+        {showDeleteConfirm ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
+          >
+            <div className="bg-surface border-4 border-danger p-8 w-full max-w-sm text-center">
+              <h3 className="font-display text-4xl text-danger mb-4">DELETE EXERCISE</h3>
+              <p className="font-mono text-sm mb-8 uppercase">
+                THIS REMOVES {exercise.name} FROM SAVED EXERCISES, PLAN SCHEDULES, AND PR VAULT.
+              </p>
+              <div className="flex flex-col gap-4">
+                <button
+                  onClick={() => {
+                    onDelete(exercise.id);
+                    onClose();
+                  }}
+                  className="brutal-btn bg-danger border-black text-black shadow-none"
+                >
+                  CONFIRM DELETE
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="font-display text-xl text-text-main"
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
+
+const SettingsPage = ({
+  settings,
+  setSettings,
+  exercises,
+  onToggleUnit,
+  onWipeData,
+  onExportData,
+  onImportData,
+  onSaveExerciseEdits,
+  onDeleteExercise,
+}: {
+  settings: Settings;
+  setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+  exercises: Exercise[];
+  onToggleUnit: () => void;
+  onWipeData: () => void;
+  onExportData: () => void;
+  onImportData: (data: ImportedBackupData) => void;
+  onSaveExerciseEdits: (args: {
+    exerciseId: string;
+    nextName: string;
+    nextPrimaryMuscle: PrimaryMuscleGroup;
+  }) => { ok: true } | { ok: false; error: string };
+  onDeleteExercise: (exerciseId: string) => void;
+}) => {
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const [showManageExercises, setShowManageExercises] = useState(false);
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const editingExercise = exercises.find((exercise) => exercise.id === editingExerciseId) ?? null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1017,9 +1305,9 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExpor
           <span className="text-xl font-bold uppercase tracking-wider">UNIT ({settings.unit.toUpperCase()})</span>
           <button 
             onClick={onToggleUnit}
-            className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.unit === 'lbs' ? "bg-muted" : "bg-primary")}
+            className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.unit === 'lbs' ? "bg-primary" : "bg-muted")}
           >
-            <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.unit === 'lbs' ? "left-1" : "left-11")} />
+            <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.unit === 'lbs' ? "left-11" : "left-1")} />
           </button>
         </div>
 
@@ -1042,6 +1330,16 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExpor
             <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.matchWeight ? "left-11" : "left-1")} />
           </button>
         </div>
+
+        <h2 className="text-sm text-muted uppercase tracking-widest px-4 mb-2 mt-12 font-mono">EXERCISES</h2>
+
+        <button
+          onClick={() => setShowManageExercises(true)}
+          className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none"
+        >
+          <span className="text-xl font-bold uppercase tracking-wider group-hover:text-primary">MANAGE EXERCISES</span>
+          <ChevronRight size={24} className="text-primary" />
+        </button>
 
         <h2 className="text-sm text-muted uppercase tracking-widest px-4 mb-2 mt-12 font-mono">DATA</h2>
         
@@ -1096,6 +1394,27 @@ const SettingsPage = ({ settings, setSettings, onToggleUnit, onWipeData, onExpor
             </div>
           </motion.div>
         )}
+        {showManageExercises ? (
+          <ManageExercisesScreen
+            exercises={exercises}
+            onSelectExercise={setEditingExerciseId}
+            onClose={() => {
+              setShowManageExercises(false);
+              setEditingExerciseId(null);
+            }}
+          />
+        ) : null}
+        {showManageExercises && editingExercise ? (
+          <EditExerciseScreen
+            exercise={editingExercise}
+            onClose={() => setEditingExerciseId(null)}
+            onSave={onSaveExerciseEdits}
+            onDelete={(exerciseId) => {
+              onDeleteExercise(exerciseId);
+              setEditingExerciseId(null);
+            }}
+          />
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );
@@ -1108,7 +1427,10 @@ export default function App() {
     return parseStoredValue(
       localStorage.getItem('workout_exercises'),
       normalizeExercisesForStorage,
-      INITIAL_EXERCISES
+      INITIAL_EXERCISES.map((exercise) => ({
+        ...exercise,
+        sets: 2,
+      }))
     );
   });
   const [prs, setPrs] = useState<PR[]>(() => {
@@ -1171,12 +1493,24 @@ export default function App() {
   };
 
   const handleLogSet = (exId: string, setIndex: number, weight: number, reps: number) => {
+    let loggedSet = false;
+
     setExercises(prev => prev.map(ex => {
       if (ex.id !== exId) return ex;
       const newLogs = [...ex.logs];
       newLogs[setIndex] = { weight, reps, completed: true };
+      loggedSet = true;
       return { ...ex, logs: newLogs };
     }));
+
+    if (
+      loggedSet &&
+      settings.hapticFeedback &&
+      typeof navigator !== 'undefined' &&
+      typeof navigator.vibrate === 'function'
+    ) {
+      navigator.vibrate(12);
+    }
   };
 
   const handleUnlogSet = (exId: string, setIndex: number) => {
@@ -1191,23 +1525,113 @@ export default function App() {
   };
 
   const handleAddSet = (exId: string) => {
-    setExercises(prev => prev.map(ex => ex.id === exId ? { ...ex, sets: ex.sets + 1 } : ex));
+    const activePlanIdSnapshot = activePlanId;
+    const activePlanSnapshot = plans.find((plan) => plan.id === activePlanIdSnapshot);
+    const exercise = exercises.find((candidate) => candidate.id === exId);
+    const normalizedExerciseName = exercise
+      ? normalizePlanExerciseName(exercise.name)
+      : null;
+    const exerciseIsInActivePlan =
+      !!activePlanSnapshot &&
+      !!normalizedExerciseName &&
+      Object.values(activePlanSnapshot.schedule).some(
+        (day: TrainingPlan['schedule'][string]) =>
+        (day.exercises ?? []).some(
+          (exerciseName) =>
+            normalizePlanExerciseName(exerciseName) === normalizedExerciseName
+        )
+      );
+
+    if (!exercise || !normalizedExerciseName || !exerciseIsInActivePlan) {
+      setExercises((prev) =>
+        prev.map((candidate) =>
+          candidate.id === exId ? { ...candidate, sets: candidate.sets + 1 } : candidate
+        )
+      );
+      return;
+    }
+
+    setPlans((prev) =>
+      prev.map((plan) => {
+        if (plan.id !== activePlanIdSnapshot) {
+          return plan;
+        }
+
+        const nextCounts = buildPlanExerciseSetCounts(
+          plan.schedule,
+          plan.exerciseSetCounts
+        );
+        nextCounts[normalizedExerciseName] =
+          (nextCounts[normalizedExerciseName] ?? 2) + 1;
+
+        return {
+          ...plan,
+          exerciseSetCounts: nextCounts,
+        };
+      })
+    );
   };
 
   const handleRemoveSet = (exId: string) => {
-    setExercises(prev => prev.map(ex => {
-      if (ex.id !== exId || ex.sets <= 1) {
-        return ex;
-      }
+    const activePlanIdSnapshot = activePlanId;
+    const activePlanSnapshot = plans.find((plan) => plan.id === activePlanIdSnapshot);
+    const exercise = exercises.find((candidate) => candidate.id === exId);
+    const normalizedExerciseName = exercise
+      ? normalizePlanExerciseName(exercise.name)
+      : null;
+    const exerciseIsInActivePlan =
+      !!activePlanSnapshot &&
+      !!normalizedExerciseName &&
+      Object.values(activePlanSnapshot.schedule).some(
+        (day: TrainingPlan['schedule'][string]) =>
+        (day.exercises ?? []).some(
+          (exerciseName) =>
+            normalizePlanExerciseName(exerciseName) === normalizedExerciseName
+        )
+      );
 
-      const nextSets = ex.sets - 1;
-      return {
-        ...ex,
-        sets: nextSets,
-        logs: ex.logs.slice(0, nextSets),
-        lastLogs: ex.lastLogs?.slice(0, nextSets),
-      };
-    }));
+    if (!exercise || !normalizedExerciseName || !exerciseIsInActivePlan) {
+      setExercises((prev) =>
+        prev.map((candidate) => {
+          if (candidate.id !== exId || candidate.sets <= 1) {
+            return candidate;
+          }
+
+          const nextSets = candidate.sets - 1;
+          return {
+            ...candidate,
+            sets: nextSets,
+            logs: candidate.logs.slice(0, nextSets),
+            lastLogs: candidate.lastLogs?.slice(0, nextSets),
+          };
+        })
+      );
+      return;
+    }
+
+    setPlans((prev) =>
+      prev.map((plan) => {
+        if (plan.id !== activePlanIdSnapshot) {
+          return plan;
+        }
+
+        const nextCounts = buildPlanExerciseSetCounts(
+          plan.schedule,
+          plan.exerciseSetCounts
+        );
+        const currentCount = nextCounts[normalizedExerciseName] ?? 2;
+        if (currentCount <= 1) {
+          return plan;
+        }
+
+        nextCounts[normalizedExerciseName] = currentCount - 1;
+
+        return {
+          ...plan,
+          exerciseSetCounts: nextCounts,
+        };
+      })
+    );
   };
 
   const handleSavePlan = (
@@ -1215,30 +1639,40 @@ export default function App() {
     exercisePrimaryMuscles: Record<string, PrimaryMuscleGroup>,
     mode: 'create' | 'edit'
   ) => {
+    const planWithCounts = {
+      ...newPlan,
+      exerciseSetCounts: buildPlanExerciseSetCounts(
+        newPlan.schedule,
+        newPlan.exerciseSetCounts
+      ),
+    };
+
     setPlans(prev => {
       if (mode === 'edit') {
-        const existingPlan = prev.find((plan) => plan.id === newPlan.id);
+        const existingPlan = prev.find((plan) => plan.id === planWithCounts.id);
         if (!existingPlan) {
-          return [...prev, newPlan];
+          return [...prev, planWithCounts];
         }
 
-        return replacePlanById(prev, mergePlanEdits(existingPlan, newPlan));
+        return replacePlanById(prev, mergePlanEdits(existingPlan, planWithCounts));
       }
 
-      return [...prev, newPlan];
+      return [...prev, planWithCounts];
     });
 
     if (mode === 'create' && !activePlanId) {
-      setActivePlanId(newPlan.id);
+      setActivePlanId(planWithCounts.id);
     }
     
     // Ensure all exercise names in the new plan have corresponding Exercise objects
     const newExerciseNames = new Set<string>();
-    Object.values(newPlan.schedule).forEach(day => {
+    Object.values(planWithCounts.schedule).forEach(
+      (day: TrainingPlan['schedule'][string]) => {
       if (day.exercises) {
         day.exercises.forEach(name => newExerciseNames.add(name));
       }
-    });
+      }
+    );
 
     setExercises(prev => {
       const existingNames = new Set(prev.map(e => e.name));
@@ -1250,7 +1684,7 @@ export default function App() {
             name: name,
             primaryMuscle:
               exercisePrimaryMuscles[name.toUpperCase()] ?? DEFAULT_PRIMARY_MUSCLE_GROUP,
-            sets: 3,
+            sets: 2,
             reps: "8-15",
             logs: []
           });
@@ -1299,46 +1733,20 @@ export default function App() {
     const currentTodaySchedule = currentActivePlan?.schedule[currentTodayName];
     const currentTodayExerciseNames = currentTodaySchedule?.exercises || [];
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalCalendarDateString();
+    const currentWeek = currentActivePlan?.currentWeek ?? 1;
 
     // Update PRs with the highest weight logged today for each exercise
-    setPrs(prevPrs => {
-      let updatedPrs = [...prevPrs];
-      
-      exercises.forEach(ex => {
-        const wasInToday = currentTodayExerciseNames.includes(ex.name);
-        if (wasInToday && ex.logs.some(l => l?.completed)) {
-          const maxWeight = Math.max(...ex.logs.filter(l => l?.completed).map(l => l.weight));
-          
-          const existingPrIndex = updatedPrs.findIndex(p => p.exerciseName.toUpperCase() === ex.name.toUpperCase());
-          
-          if (existingPrIndex >= 0) {
-            const existingPr = updatedPrs[existingPrIndex];
-            const isNewPr = maxWeight > existingPr.weight;
-            const newHistory = [...existingPr.history, { weight: maxWeight, date: today }];
-            if (newHistory.length > 60) {
-              newHistory.shift();
-            }
-            updatedPrs[existingPrIndex] = {
-              ...existingPr,
-              weight: isNewPr ? maxWeight : existingPr.weight,
-              date: isNewPr ? today : existingPr.date,
-              history: newHistory
-            };
-          } else {
-            updatedPrs.push({
-              exerciseId: ex.id,
-              exerciseName: ex.name,
-              weight: maxWeight,
-              date: today,
-              history: [{ weight: maxWeight, date: today }]
-            });
-          }
-        }
-      });
-      
-      return updatedPrs;
-    });
+    setPrs(prevPrs =>
+      applyWorkoutPrUpdates({
+        prs: prevPrs,
+        exercises,
+        completedExerciseNames: currentTodayExerciseNames,
+        date: today,
+        plan: currentActivePlan,
+        week: currentWeek,
+      })
+    );
 
     // Reset only the completed day's exercise logs; preserve unfinished logs on other days.
     setExercises(prev => completeWorkoutExercises(prev, currentTodayExerciseNames));
@@ -1357,7 +1765,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `workout-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `workout-backup-${getLocalCalendarDateString()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1370,8 +1778,60 @@ export default function App() {
     setSettings(data.settings);
   };
 
+  const applyExerciseManagementState = (nextState: {
+    exercises: Exercise[];
+    plans: TrainingPlan[];
+    prs: PR[];
+  }) => {
+    setExercises(nextState.exercises);
+    setPlans(nextState.plans);
+    setPrs(nextState.prs);
+  };
+
+  const handleSaveExerciseEdits = ({
+    exerciseId,
+    nextName,
+    nextPrimaryMuscle,
+  }: {
+    exerciseId: string;
+    nextName: string;
+    nextPrimaryMuscle: PrimaryMuscleGroup;
+  }): { ok: true } | { ok: false; error: string } => {
+    const result = saveManagedExerciseEdits({
+      exercises,
+      plans,
+      prs,
+      exerciseId,
+      nextName,
+      nextPrimaryMuscle,
+    });
+
+    if (!result.ok) {
+      return result;
+    }
+
+    applyExerciseManagementState(result);
+    return { ok: true };
+  };
+
+  const handleDeleteExercise = (exerciseId: string) => {
+    applyExerciseManagementState(
+      deleteManagedExercise({
+        exercises,
+        plans,
+        prs,
+        exerciseId,
+      })
+    );
+  };
+
   const handleWipeData = () => {
-    setExercises(INITIAL_EXERCISES);
+    setExercises(
+      INITIAL_EXERCISES.map((exercise) => ({
+        ...exercise,
+        sets: 2,
+      }))
+    );
     setPrs(INITIAL_PRS);
     setPlans([]);
     setActivePlanId(null);
@@ -1387,10 +1847,10 @@ export default function App() {
   const activePlanInDeloadWeek = isDeloadWeek(activePlan, currentWeek);
   const todaySchedule = activePlan?.schedule[todayName];
   
-  // Filter exercises to only show those assigned to today in the active plan
-  const todayExercises = todaySchedule ? exercises.filter(ex => 
-    todaySchedule.exercises?.includes(ex.name)
-  ) : [];
+  // Preserve the plan-authored order and skip missing exercise records safely.
+  const todayExercises = todaySchedule
+    ? buildTodayExercises(todaySchedule.exercises ?? [], exercises)
+    : [];
 
   return (
     <Router>
@@ -1420,6 +1880,7 @@ export default function App() {
                   <DailyGrind 
                     exercises={todayExercises} 
                     activePlan={activePlan}
+                    unit={settings.unit}
                     onLogSet={handleLogSet}
                     onCompleteWorkout={handleCompleteWorkout} 
                   />
@@ -1488,10 +1949,25 @@ export default function App() {
           />
           <Route path="/prs" element={
             <React.Suspense fallback={<div className="flex-1 bg-black" />}>
-              <PRVaultPage prs={prs} settings={settings} />
+              <PRVaultPage prs={prs} settings={settings} exercises={exercises} />
             </React.Suspense>
           } />
-          <Route path="/settings" element={<SettingsPage settings={settings} setSettings={setSettings} onToggleUnit={handleToggleUnit} onWipeData={handleWipeData} onExportData={handleExportData} onImportData={handleImportData} />} />
+          <Route
+            path="/settings"
+            element={
+              <SettingsPage
+                settings={settings}
+                setSettings={setSettings}
+                exercises={exercises}
+                onToggleUnit={handleToggleUnit}
+                onWipeData={handleWipeData}
+                onExportData={handleExportData}
+                onImportData={handleImportData}
+                onSaveExerciseEdits={handleSaveExerciseEdits}
+                onDeleteExercise={handleDeleteExercise}
+              />
+            }
+          />
         </Routes>
         <BottomNav />
       </div>

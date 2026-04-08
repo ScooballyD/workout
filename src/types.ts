@@ -37,6 +37,7 @@ export interface TrainingPlan {
   durationWeeks: number;
   currentWeek: number;
   currentDay: number;
+  exerciseSetCounts?: Record<string, number>;
   schedule: {
     [day: string]: {
       type: 'workout' | 'rest';

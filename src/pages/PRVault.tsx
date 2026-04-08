@@ -3,21 +3,30 @@ import { motion } from 'motion/react';
 import { Trophy } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import { Header } from '../components/Header';
+import { getLocalCalendarDateString } from '../lib/local-date';
 import {
   ALL_PR_FILTER,
-  filterPrsByExercise,
+  filterPrsByMuscleGroup,
   getPrChartDomain,
   getPrFilterOptions,
   togglePrExerciseFilter,
 } from '../lib/pr-vault';
 import { cn } from '../lib/utils';
-import type { PR, Settings } from '../types';
+import type { Exercise, PR, Settings } from '../types';
 
-export default function PRVault({ prs, settings }: { prs: PR[]; settings: Settings }) {
-  const filters = getPrFilterOptions(prs);
+export default function PRVault({
+  prs,
+  settings,
+  exercises,
+}: {
+  prs: PR[];
+  settings: Settings;
+  exercises: Exercise[];
+}) {
+  const filters = getPrFilterOptions(prs, exercises);
   const workoutFilters = filters.filter(filter => filter !== ALL_PR_FILTER);
   const [selectedFilters, setSelectedFilters] = useState<string[]>(() => workoutFilters);
-  const filteredPrs = filterPrsByExercise(prs, selectedFilters);
+  const filteredPrs = filterPrsByMuscleGroup(prs, selectedFilters, exercises);
   const areAllFiltersSelected = workoutFilters.length > 0 && selectedFilters.length === workoutFilters.length;
 
   useEffect(() => {
@@ -82,7 +91,7 @@ export default function PRVault({ prs, settings }: { prs: PR[]; settings: Settin
                 </div>
                 <div className="relative z-10 flex justify-between items-start mb-4">
                   <span className="text-xs text-muted font-bold tracking-widest">{pr.exerciseName}</span>
-                  {pr.date === new Date().toISOString().split('T')[0] && (
+                  {pr.date === getLocalCalendarDateString() && (
                     <span className="bg-secondary text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm">NEW PR</span>
                   )}
                 </div>
