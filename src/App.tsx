@@ -4,6 +4,8 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -47,6 +49,7 @@ import {
 } from './lib/exercise-log-inputs';
 import { getNextSetDisplayValues, getNextSetInfo } from './lib/next-set-info';
 import { getLocalCalendarDateString } from './lib/local-date';
+import { getAndroidBackAction } from './lib/android-back';
 import { applyWorkoutPrUpdates } from './lib/pr-vault';
 import {
   addExerciseToPlanDay,
@@ -171,6 +174,89 @@ const buildPlanFocusSummary = (
 };
 
 // --- Components ---
+
+const AndroidBackHandler = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pathnameRef = useRef(location.pathname);
+  const navigateRef = useRef(navigate);
+  const listenerOperationsRef = useRef<Promise<void>>(Promise.resolve());
+  const listenerCleanupFailedRef = useRef(false);
+  pathnameRef.current = location.pathname;
+  navigateRef.current = navigate;
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') {
+      return;
+    }
+
+    let disposed = false;
+    let listener: PluginListenerHandle | undefined;
+
+    const removeListener = async (handle: PluginListenerHandle) => {
+      try {
+        await handle.remove();
+      } catch (error) {
+        listenerCleanupFailedRef.current = true;
+        console.error('Android back listener removal failed.', error);
+      }
+    };
+
+    const addListenerOperation = listenerOperationsRef.current.then(async () => {
+      if (disposed || listenerCleanupFailedRef.current) {
+        return;
+      }
+
+      try {
+        const handle = await CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+          const action = getAndroidBackAction(pathnameRef.current, canGoBack);
+
+          if (action === 'history-back') {
+            navigateRef.current(-1);
+            return;
+          }
+
+          if (action === 'navigate-root') {
+            navigateRef.current('/', { replace: true });
+            return;
+          }
+
+          void CapacitorApp.exitApp().catch((error: unknown) => {
+            console.error('Android back app exit failed.', error);
+          });
+        });
+
+        if (disposed) {
+          await removeListener(handle);
+          return;
+        }
+
+        listener = handle;
+      } catch (error) {
+        console.error('Android back listener registration failed.', error);
+      }
+    });
+    listenerOperationsRef.current = addListenerOperation;
+    void addListenerOperation.catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      const removeListenerOperation = listenerOperationsRef.current.then(async () => {
+        if (!listener) {
+          return;
+        }
+
+        const handle = listener;
+        listener = undefined;
+        await removeListener(handle);
+      });
+      listenerOperationsRef.current = removeListenerOperation;
+      void removeListenerOperation.catch(() => undefined);
+    };
+  }, []);
+
+  return null;
+};
 
 const BottomNav = () => {
   const location = useLocation();
@@ -1854,6 +1940,7 @@ export default function App() {
 
   return (
     <Router>
+      <AndroidBackHandler />
       <div className="min-h-screen bg-black text-text-main flex flex-col">
         <Routes>
           <Route path="/" element={

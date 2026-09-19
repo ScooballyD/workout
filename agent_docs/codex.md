@@ -221,6 +221,29 @@ Preserve the base-aware manifest handling in [vite.config.ts](C:/Users/carve/One
 - Inspect generated `dist/manifest.webmanifest`
 - Confirm `start_url`, `scope`, and icon URLs respect the configured base path
 
+## 8. Capacitor Android Back Must Follow Router History
+
+### Issue
+
+Android system back used to exit Megalifts from nested React Router screens instead of returning to the prior in-app route.
+
+### Failure mode
+
+Users lost the current workout flow when pressing Android back from exercise detail, Plans, PR Vault, or Settings. React Router history is not consumed automatically by Capacitor without an App-plugin listener.
+
+### Current safe pattern
+
+Use the official `@capacitor/app` plugin and mount one Android-only listener inside the router in [src/App.tsx](C:/Users/carve/OneDrive/Projects/workout/src/App.tsx). Keep route decisions in [src/lib/android-back.ts](C:/Users/carve/OneDrive/Projects/workout/src/lib/android-back.ts): use history for nested routes when available, replace-navigate to `/` for direct nested launches, and call `exitApp()` only at `/`.
+
+The listener lifecycle is asynchronous. Keep the current pathname and navigator in refs, serialize listener add/remove operations for React Strict Mode, retry registration failures safely, and block future registration if native listener removal fails. Never use `removeAllListeners`.
+
+### Verify before calling it fixed
+
+- Run `npm test`, `npm run lint`, `npm run build:android:web`, and `npm run sync:android`
+- Build the Android debug artifact and install it on a physical device
+- Verify exercise-detail system back, toolbar back, each bottom-navigation route, repeated back presses, root exit, and relaunch
+- Inspect process Logcat for AndroidRuntime, Capacitor, Chromium, and listener errors
+
 ## Quick Start For Future Agents
 
 Before large or risky work:
