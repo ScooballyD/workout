@@ -17,3 +17,4 @@
 ## Completed tasks
 1. [P1] Megalifts now has the base Capacitor Android wrapper in place, including Capacitor dependencies, `capacitor.config.ts`, and a generated `android/` project synced from the current `dist` build.
 2. [P1] The repo now has repeatable Capacitor Android packaging scripts and repo-specific docs covering the required rebuild-and-sync workflow before Android tester releases.
+3. [P2] The manager playbook now assigns specialist models by role and risk, requires documented fallbacks for unavailable models, preserves sequential safety, and reserves final approval and publishing authority for the manager and user.

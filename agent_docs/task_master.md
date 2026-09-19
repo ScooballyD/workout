@@ -126,6 +126,27 @@ Do not parallelize by reflex. Use parallel delegation only when ownership is ful
 
 Use full handoff-style ownership only when one agent can safely own a complete slice end to end without stepping on other work, such as a self-contained doc cleanup or a small isolated helper module change.
 
+## Model Selection By Specialist Role
+
+Choose a specialist model from the role matrix below, then increase capability when the task's actual risk warrants it. Role is a starting point, not a substitute for risk assessment.
+
+| Role | Default model and effort | Use for |
+| --- | --- | --- |
+| `code-explorer` | GPT-5.6 Luna / low | Read-only repository discovery and decision-ready findings. |
+| `quick-implementer` | GPT-5.6 Luna / low | Mechanical, isolated, low-risk one- or two-file edits with focused checks. |
+| `implementer` | GPT-5.6 Luna / medium | Bounded features and bug fixes, including targeted unit tests. |
+| `high-risk-implementer` | GPT-5.6 Sol / medium | Persistence, routing, Android lifecycle, complex React state, backup/schema, and other fragile behavior. |
+| `code-validator` | GPT-5.6 Luna / low | Read-only focused test, build, lint, type-check, and diff verification. |
+| `code-reviewer` | GPT-5.6 Sol / medium | Read-only review of risky, stateful, security-sensitive, public-facing, or difficult changes. |
+| `docs-process` | GPT-5.6 Luna / low | Documentation, task tracking, plans, and durable repository process updates. |
+| `commit-pusher` | GPT-5.6 Luna / low | Explicitly requested staging, conventional commits, and pushes. |
+
+Escalate to the `high-risk-implementer` and `code-reviewer` path even for small edits when they touch `src/App.tsx`, persistence, Capacitor, plan lifecycle, backup/schema, or another known fragile area. A lower-risk implementation still needs a Sol review when its user impact or failure mode is high.
+
+The manager retains final verification and shipping approval. A `commit-pusher` must never choose files to stage or publish changes without an explicit file list and direct user authorization to commit or push.
+
+Model availability varies by environment and can change. Before dispatching, the manager must confirm the requested model and effort are available. If not, record the fallback in the delegation prompt and choose the closest available model that preserves the required risk level; do not silently downgrade a high-risk task.
+
 ## Delegation Workflow
 
 ### 1. Triage the request
