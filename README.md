@@ -61,3 +61,25 @@ Prerequisite: Node.js
 3. Run the TypeScript check with `npm run lint`.
 4. Build the production bundle with `npm run build`.
 5. Preview the production build with `npm run preview`.
+
+## Android Tester Packaging
+
+The repo now includes a Capacitor Android wrapper so Megalifts can be shipped to testers as a downloadable Android app without requiring a continuously hosted web server.
+
+Current Android packaging flow:
+
+1. Run `npm run lint`
+2. Run `npm test`
+3. Run `npm run build:android:web`
+4. Run `npm run sync:android`
+
+Useful Android commands:
+
+- `npm run open:android`
+- `npm run run:android`
+
+Important:
+
+- Android tester builds use the web assets bundled into the native project from `dist`.
+- Web changes do not automatically reach installed Android builds; after app changes you must rebuild, sync, and create a new Android release.
+- See [docs/android-testing.md](C:/Users/carve/OneDrive/Projects/workout/docs/android-testing.md) for the repo-specific Android workflow.
