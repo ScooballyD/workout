@@ -180,6 +180,7 @@ const AndroidBackHandler = () => {
   const navigate = useNavigate();
   const pathnameRef = useRef(location.pathname);
   const navigateRef = useRef(navigate);
+  const listenerOperationsRef = useRef<Promise<void>>(Promise.resolve());
   pathnameRef.current = location.pathname;
   navigateRef.current = navigate;
 
@@ -191,34 +192,50 @@ const AndroidBackHandler = () => {
     let disposed = false;
     let listener: PluginListenerHandle | undefined;
 
-    void CapacitorApp.addListener('backButton', ({ canGoBack }) => {
-      const action = getAndroidBackAction(pathnameRef.current, canGoBack);
+    listenerOperationsRef.current = listenerOperationsRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (disposed) {
+          return;
+        }
 
-      if (action === 'history-back') {
-        navigateRef.current(-1);
-        return;
-      }
+        const handle = await CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+          const action = getAndroidBackAction(pathnameRef.current, canGoBack);
 
-      if (action === 'navigate-root') {
-        navigateRef.current('/', { replace: true });
-        return;
-      }
+          if (action === 'history-back') {
+            navigateRef.current(-1);
+            return;
+          }
 
-      void CapacitorApp.exitApp();
-    }).then((handle) => {
-      if (disposed) {
-        void handle.remove();
-        return;
-      }
+          if (action === 'navigate-root') {
+            navigateRef.current('/', { replace: true });
+            return;
+          }
 
-      listener = handle;
-    });
+          void CapacitorApp.exitApp();
+        });
+
+        if (disposed) {
+          await handle.remove();
+          return;
+        }
+
+        listener = handle;
+      });
 
     return () => {
       disposed = true;
-      if (listener) {
-        void listener.remove();
-      }
+      listenerOperationsRef.current = listenerOperationsRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (!listener) {
+            return;
+          }
+
+          const handle = listener;
+          listener = undefined;
+          await handle.remove();
+        });
     };
   }, []);
 
