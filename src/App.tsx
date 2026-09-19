@@ -181,6 +181,7 @@ const AndroidBackHandler = () => {
   const pathnameRef = useRef(location.pathname);
   const navigateRef = useRef(navigate);
   const listenerOperationsRef = useRef<Promise<void>>(Promise.resolve());
+  const listenerCleanupFailedRef = useRef(false);
   pathnameRef.current = location.pathname;
   navigateRef.current = navigate;
 
@@ -192,11 +193,21 @@ const AndroidBackHandler = () => {
     let disposed = false;
     let listener: PluginListenerHandle | undefined;
 
-    const addListenerOperation = listenerOperationsRef.current.then(async () => {
-        if (disposed) {
-          return;
-        }
+    const removeListener = async (handle: PluginListenerHandle) => {
+      try {
+        await handle.remove();
+      } catch (error) {
+        listenerCleanupFailedRef.current = true;
+        console.error('Android back listener removal failed.', error);
+      }
+    };
 
+    const addListenerOperation = listenerOperationsRef.current.then(async () => {
+      if (disposed || listenerCleanupFailedRef.current) {
+        return;
+      }
+
+      try {
         const handle = await CapacitorApp.addListener('backButton', ({ canGoBack }) => {
           const action = getAndroidBackAction(pathnameRef.current, canGoBack);
 
@@ -210,30 +221,35 @@ const AndroidBackHandler = () => {
             return;
           }
 
-          void CapacitorApp.exitApp();
+          void CapacitorApp.exitApp().catch((error: unknown) => {
+            console.error('Android back app exit failed.', error);
+          });
         });
 
         if (disposed) {
-          await handle.remove();
+          await removeListener(handle);
           return;
         }
 
         listener = handle;
-      });
+      } catch (error) {
+        console.error('Android back listener registration failed.', error);
+      }
+    });
     listenerOperationsRef.current = addListenerOperation;
     void addListenerOperation.catch(() => undefined);
 
     return () => {
       disposed = true;
       const removeListenerOperation = listenerOperationsRef.current.then(async () => {
-          if (!listener) {
-            return;
-          }
+        if (!listener) {
+          return;
+        }
 
-          const handle = listener;
-          listener = undefined;
-          await handle.remove();
-        });
+        const handle = listener;
+        listener = undefined;
+        await removeListener(handle);
+      });
       listenerOperationsRef.current = removeListenerOperation;
       void removeListenerOperation.catch(() => undefined);
     };
