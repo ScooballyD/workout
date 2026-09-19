@@ -48,3 +48,4 @@ This role is best for:
 - Run `npm run sync:android` when the work affects packaged Android assets or the Capacitor wrapper flow
 - Run `npm run preview` when installability, routing, manifest, or service worker behavior changes
 - Inspect generated output when the task touches manifest or build-time assets
+- For Android routing changes, install the debug build on a physical device and verify exercise-detail system back, toolbar back, bottom-navigation history, repeated back presses, root-only exit, relaunch, and process Logcat.
