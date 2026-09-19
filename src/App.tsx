@@ -192,9 +192,7 @@ const AndroidBackHandler = () => {
     let disposed = false;
     let listener: PluginListenerHandle | undefined;
 
-    listenerOperationsRef.current = listenerOperationsRef.current
-      .catch(() => undefined)
-      .then(async () => {
+    const addListenerOperation = listenerOperationsRef.current.then(async () => {
         if (disposed) {
           return;
         }
@@ -222,12 +220,12 @@ const AndroidBackHandler = () => {
 
         listener = handle;
       });
+    listenerOperationsRef.current = addListenerOperation;
+    void addListenerOperation.catch(() => undefined);
 
     return () => {
       disposed = true;
-      listenerOperationsRef.current = listenerOperationsRef.current
-        .catch(() => undefined)
-        .then(async () => {
+      const removeListenerOperation = listenerOperationsRef.current.then(async () => {
           if (!listener) {
             return;
           }
@@ -236,6 +234,8 @@ const AndroidBackHandler = () => {
           listener = undefined;
           await handle.remove();
         });
+      listenerOperationsRef.current = removeListenerOperation;
+      void removeListenerOperation.catch(() => undefined);
     };
   }, []);
 
