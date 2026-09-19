@@ -4,6 +4,8 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -47,6 +49,7 @@ import {
 } from './lib/exercise-log-inputs';
 import { getNextSetDisplayValues, getNextSetInfo } from './lib/next-set-info';
 import { getLocalCalendarDateString } from './lib/local-date';
+import { getAndroidBackAction } from './lib/android-back';
 import { applyWorkoutPrUpdates } from './lib/pr-vault';
 import {
   addExerciseToPlanDay,
@@ -171,6 +174,57 @@ const buildPlanFocusSummary = (
 };
 
 // --- Components ---
+
+const AndroidBackHandler = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pathnameRef = useRef(location.pathname);
+
+  useEffect(() => {
+    pathnameRef.current = location.pathname;
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') {
+      return;
+    }
+
+    let disposed = false;
+    let listener: PluginListenerHandle | undefined;
+
+    void CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+      const action = getAndroidBackAction(pathnameRef.current, canGoBack);
+
+      if (action === 'history-back') {
+        navigate(-1);
+        return;
+      }
+
+      if (action === 'navigate-root') {
+        navigate('/', { replace: true });
+        return;
+      }
+
+      void CapacitorApp.exitApp();
+    }).then((handle) => {
+      if (disposed) {
+        void handle.remove();
+        return;
+      }
+
+      listener = handle;
+    });
+
+    return () => {
+      disposed = true;
+      if (listener) {
+        void listener.remove();
+      }
+    };
+  }, [navigate]);
+
+  return null;
+};
 
 const BottomNav = () => {
   const location = useLocation();
@@ -1854,6 +1908,7 @@ export default function App() {
 
   return (
     <Router>
+      <AndroidBackHandler />
       <div className="min-h-screen bg-black text-text-main flex flex-col">
         <Routes>
           <Route path="/" element={
