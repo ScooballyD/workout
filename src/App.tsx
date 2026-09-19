@@ -179,10 +179,9 @@ const AndroidBackHandler = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const pathnameRef = useRef(location.pathname);
-
-  useEffect(() => {
-    pathnameRef.current = location.pathname;
-  }, [location.pathname]);
+  const navigateRef = useRef(navigate);
+  pathnameRef.current = location.pathname;
+  navigateRef.current = navigate;
 
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') {
@@ -196,12 +195,12 @@ const AndroidBackHandler = () => {
       const action = getAndroidBackAction(pathnameRef.current, canGoBack);
 
       if (action === 'history-back') {
-        navigate(-1);
+        navigateRef.current(-1);
         return;
       }
 
       if (action === 'navigate-root') {
-        navigate('/', { replace: true });
+        navigateRef.current('/', { replace: true });
         return;
       }
 
@@ -221,7 +220,7 @@ const AndroidBackHandler = () => {
         void listener.remove();
       }
     };
-  }, [navigate]);
+  }, []);
 
   return null;
 };
