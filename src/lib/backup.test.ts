@@ -205,6 +205,10 @@ test('DEFAULT_SETTINGS enables matchWeight for fresh settings state', () => {
   assert.equal(DEFAULT_SETTINGS.matchWeight, true);
 });
 
+test('DEFAULT_SETTINGS disables rest days for fresh settings state', () => {
+  assert.equal(DEFAULT_SETTINGS.includeRestDays, false);
+});
+
 test('parseStoredValue preserves an existing saved matchWeight false preference', () => {
   const storedSettings = JSON.stringify({
     unit: 'lbs',
@@ -219,6 +223,72 @@ test('parseStoredValue preserves an existing saved matchWeight false preference'
   );
 
   assert.equal(result.matchWeight, false);
+});
+
+test('parseStoredValue defaults legacy settings without includeRestDays to false', () => {
+  const storedSettings = JSON.stringify({
+    unit: 'lbs',
+    hapticFeedback: true,
+    matchWeight: false,
+  });
+
+  const result = parseStoredValue(
+    storedSettings,
+    normalizeSettings,
+    DEFAULT_SETTINGS
+  );
+
+  assert.equal(result.includeRestDays, false);
+});
+
+test('normalizeSettings preserves an explicit includeRestDays true preference', () => {
+  const result = normalizeSettings({
+    unit: 'lbs',
+    hapticFeedback: true,
+    matchWeight: false,
+    includeRestDays: true,
+  });
+
+  assert.equal(result?.includeRestDays, true);
+});
+
+test('normalizeSettings rejects an explicitly non-boolean includeRestDays value', () => {
+  const result = normalizeSettings({
+    unit: 'lbs',
+    hapticFeedback: true,
+    matchWeight: false,
+    includeRestDays: 'false',
+  });
+
+  assert.equal(result, null);
+});
+
+test('validateImportedBackup defaults legacy settings without includeRestDays to false', () => {
+  const backup = createValidBackup();
+  delete (backup.settings as { includeRestDays?: boolean }).includeRestDays;
+
+  const result = validateImportedBackup(backup);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    throw new Error('expected import to succeed');
+  }
+
+  assert.equal(result.value.settings.includeRestDays, false);
+});
+
+test('validateImportedBackup preserves an explicit includeRestDays true preference', () => {
+  const backup = createValidBackup();
+  (backup.settings as { includeRestDays?: boolean }).includeRestDays = true;
+
+  const result = validateImportedBackup(backup);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    throw new Error('expected import to succeed');
+  }
+
+  assert.equal(result.value.settings.includeRestDays, true);
 });
 
 test('parseStoredValue defaults legacy stored exercises without primaryMuscle', () => {

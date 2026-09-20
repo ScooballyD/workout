@@ -63,7 +63,7 @@ import {
   removeExerciseFromPlanDay,
   type PlanExerciseOption,
 } from './lib/plan-editor';
-import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
+import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete, skipRestDays } from './lib/plan-progress';
 import { getPlanExerciseSetCount, isDeloadWeek } from './lib/deload.ts';
 import {
   buildPlanExerciseSetCounts,
@@ -1433,6 +1433,7 @@ const SettingsPage = ({
   setSettings,
   exercises,
   onToggleUnit,
+  onToggleRestDays,
   onWipeData,
   onExportData,
   onImportData,
@@ -1443,6 +1444,7 @@ const SettingsPage = ({
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   exercises: Exercise[];
   onToggleUnit: () => void;
+  onToggleRestDays: () => void;
   onWipeData: () => void;
   onExportData: () => void;
   onImportData: (data: ImportedBackupData) => void;
@@ -1515,6 +1517,18 @@ const SettingsPage = ({
             className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.matchWeight ? "bg-primary" : "bg-muted")}
           >
             <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.matchWeight ? "left-11" : "left-1")} />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black">
+          <span className="text-xl font-bold uppercase tracking-wider">REST DAYS</span>
+          <button
+            onClick={onToggleRestDays}
+            aria-label="Rest days"
+            aria-pressed={settings.includeRestDays}
+            className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.includeRestDays ? "bg-primary" : "bg-muted")}
+          >
+            <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.includeRestDays ? "left-11" : "left-1")} />
           </button>
         </div>
 
@@ -1689,6 +1703,17 @@ export default function App() {
     })));
 
     setWorkoutDrafts(prev => convertWorkoutDraftWeights(prev, convert));
+  };
+
+  const handleToggleRestDays = () => {
+    const includeRestDays = !settings.includeRestDays;
+
+    setSettings((current) => ({ ...current, includeRestDays }));
+    if (!includeRestDays) {
+      setPlans((currentPlans) => currentPlans.map((plan) =>
+        plan.id === activePlanId ? skipRestDays(plan) : plan
+      ));
+    }
   };
 
   const handleLogSet = (exId: string, setIndex: number, weight: number, reps: number) => {
@@ -1967,7 +1992,7 @@ export default function App() {
     // Advance day counter for the active plan
     setPlans(prev => prev.map(p => {
       if (p.id !== activePlanId) return p;
-      return advancePlanProgress(p);
+      return advancePlanProgress(p, settings.includeRestDays);
     }));
     setWorkoutDrafts({});
     // Scroll to top
@@ -2254,6 +2279,7 @@ export default function App() {
                 setSettings={setSettings}
                 exercises={exercises}
                 onToggleUnit={handleToggleUnit}
+                onToggleRestDays={handleToggleRestDays}
                 onWipeData={handleWipeData}
                 onExportData={handleExportData}
                 onImportData={handleImportData}

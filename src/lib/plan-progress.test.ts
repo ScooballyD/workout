@@ -6,6 +6,7 @@ import {
   advancePlanProgress,
   getPlanProgressSnapshot,
   isPlanComplete,
+  skipRestDays,
 } from './plan-progress.ts';
 
 const createPlan = (overrides: Partial<TrainingPlan> = {}): TrainingPlan => ({
@@ -50,6 +51,39 @@ test('advancePlanProgress does not progress further once the plan is complete', 
 
   assert.equal(next.currentDay, 15);
   assert.equal(next.currentWeek, 3);
+});
+
+test('advancePlanProgress skips consecutive rest days when rest days are disabled', () => {
+  const next = advancePlanProgress(createPlan({ currentDay: 1 }), false);
+
+  assert.equal(next.currentDay, 3);
+  assert.equal(next.currentWeek, 1);
+});
+
+test('advancePlanProgress preserves one-day rest progression when rest days are enabled', () => {
+  const next = advancePlanProgress(createPlan({ currentDay: 1 }), true);
+
+  assert.equal(next.currentDay, 2);
+  assert.equal(next.currentWeek, 1);
+});
+
+test('skipRestDays crosses a week boundary to the next workout', () => {
+  const next = skipRestDays(createPlan({ currentDay: 6 }));
+
+  assert.equal(next.currentDay, 8);
+  assert.equal(next.currentWeek, 2);
+});
+
+test('advancePlanProgress completes after final rest days when rest days are disabled', () => {
+  const next = advancePlanProgress(createPlan({
+    durationWeeks: 1,
+    currentWeek: 1,
+    currentDay: 5,
+  }), false);
+
+  assert.equal(next.currentDay, 8);
+  assert.equal(next.currentWeek, 2);
+  assert.equal(isPlanComplete(next), true);
 });
 
 test('getPlanProgressSnapshot clamps visible day, week, percent, and fill to the configured duration', () => {

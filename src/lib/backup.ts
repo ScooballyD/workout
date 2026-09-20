@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: Settings = {
   unit: 'lbs',
   hapticFeedback: true,
   matchWeight: true,
+  includeRestDays: false,
 };
 
 export type ImportedBackupData = {
@@ -365,11 +366,14 @@ const normalizePlans = (value: unknown): TrainingPlan[] | null => {
 };
 
 export const normalizeSettings = (value: unknown): Settings | null => {
+  const includeRestDays = isObject(value) ? value.includeRestDays : undefined;
+
   if (
     !isObject(value) ||
     (value.unit !== 'lbs' && value.unit !== 'kg') ||
     typeof value.hapticFeedback !== 'boolean' ||
-    typeof value.matchWeight !== 'boolean'
+    typeof value.matchWeight !== 'boolean' ||
+    (includeRestDays !== undefined && typeof includeRestDays !== 'boolean')
   ) {
     return null;
   }
@@ -378,6 +382,7 @@ export const normalizeSettings = (value: unknown): Settings | null => {
     unit: value.unit,
     hapticFeedback: value.hapticFeedback,
     matchWeight: value.matchWeight,
+    includeRestDays: typeof includeRestDays === 'boolean' ? includeRestDays : false,
   };
 };
 
