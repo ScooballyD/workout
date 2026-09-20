@@ -721,7 +721,7 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, onRestartPlan, onDel
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       exit={{ opacity: 0 }}
-      className="flex-1 px-6 pt-24 pb-32 max-w-2xl mx-auto"
+      className="flex-1 w-full px-6 pt-24 pb-32 max-w-2xl mx-auto"
     >
       <div className="mb-12">
         <h2 className="font-display text-6xl tracking-tight leading-none text-text-main uppercase">TRAINING<br/><span className="text-primary">PLANS</span></h2>
