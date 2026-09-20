@@ -64,4 +64,5 @@ export interface Settings {
   unit: 'lbs' | 'kg';
   hapticFeedback: boolean;
   matchWeight: boolean;
+  includeRestDays: boolean;
 }
