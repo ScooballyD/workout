@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getNextSetDisplayValues, getNextSetInfo } from './next-set-info.ts';
+import {
+  getNextSetDisplayValues,
+  getNextSetInfo,
+  resolveNextSetValues,
+} from './next-set-info.ts';
 import type { Exercise, TrainingPlan } from '../types.ts';
 
 test('getNextSetInfo keeps the set index null when every set is complete', () => {
@@ -168,4 +172,74 @@ test('getNextSetInfo rounds generated target weights to the nearest quarter kilo
   });
 
   assert.equal(nextSetInfo.defaultWeight, 72.25);
+});
+
+test('resolveNextSetValues keeps the rounded deload weight for a reps-only draft', () => {
+  const exercise: Exercise = {
+    id: 'bench',
+    name: 'Bench Press',
+    primaryMuscle: 'Chest',
+    sets: 3,
+    reps: '5',
+    logs: [],
+    recommended: { weight: 185.13, reps: 5 },
+  };
+  const plan: TrainingPlan = {
+    id: 'plan-1',
+    name: 'BASE',
+    durationWeeks: 5,
+    currentWeek: 5,
+    currentDay: 29,
+    schedule: { MON: { type: 'workout', exercises: ['Bench Press'] } },
+    deload: { enabled: true, baseDurationWeeks: 4 },
+  };
+  const generated = getNextSetInfo(exercise, {
+    autoIncrement: false,
+    currentWeek: 5,
+    plan,
+  });
+
+  const resolved = resolveNextSetValues(generated, {
+    weight: 999,
+    reps: 7,
+    weightSource: 'default',
+    repsSource: 'manual',
+  });
+
+  assert.deepEqual(resolved, { weight: 138.75, reps: 7 });
+});
+
+test('resolveNextSetValues keeps deload defaults for a weight-only draft', () => {
+  const exercise: Exercise = {
+    id: 'bench',
+    name: 'Bench Press',
+    primaryMuscle: 'Chest',
+    sets: 5,
+    reps: '5',
+    logs: [],
+    recommended: { weight: 185, reps: 5 },
+  };
+  const plan: TrainingPlan = {
+    id: 'plan-1',
+    name: 'BASE',
+    durationWeeks: 5,
+    currentWeek: 5,
+    currentDay: 29,
+    schedule: { MON: { type: 'workout', exercises: ['Bench Press'] } },
+    deload: { enabled: true, baseDurationWeeks: 4 },
+  };
+  const generated = getNextSetInfo(exercise, {
+    autoIncrement: false,
+    currentWeek: 5,
+    plan,
+  });
+
+  const resolved = resolveNextSetValues(generated, {
+    weight: 150,
+    reps: 99,
+    weightSource: 'manual',
+    repsSource: 'default',
+  });
+
+  assert.deepEqual(resolved, { weight: 150, reps: 5 });
 });

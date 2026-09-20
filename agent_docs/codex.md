@@ -244,6 +244,32 @@ The listener lifecycle is asynchronous. Keep the current pathname and navigator 
 - Verify exercise-detail system back, toolbar back, each bottom-navigation route, repeated back presses, root exit, and relaunch
 - Inspect process Logcat for AndroidRuntime, Capacitor, Chromium, and listener errors
 
+## 9. Workout Drafts Must Preserve Field-Level Sources
+
+### Issue
+
+Exercise Detail edits need to survive navigation and relaunch without being recorded as completed workout logs.
+
+### Failure mode
+
+Persisting route-local input values directly can freeze default values after a user edits a different field. Likewise, Grind can use a stale default from a partial draft if it treats any draft as authoritative for both weight and reps.
+
+### Root cause
+
+Each input field has independent `default`, `manual`, or `propagated` semantics. A draft with manual reps can still have a default-sourced weight, which must be regenerated when the current plan context changes.
+
+### Current safe pattern
+
+Keep unfinished values in the versioned `workout_drafts` storage key through [src/lib/workout-drafts.ts](C:/Users/carve/OneDrive/Projects/workout/src/lib/workout-drafts.ts), not in sparse `Exercise.logs` or backups. Persist a draft only when at least one field is manual or propagated. During hydration and Grind's next-set display/log resolution, resolve weight and reps independently: use the draft only for non-default sources and regenerate default-source values from the current plan defaults.
+
+Prune drafts to the active plan/day/exercise/set contexts and clear them after logging, workout completion, plan restart/deletion, exercise deletion, import, and wipe. Convert draft weights whenever units change while preserving source metadata.
+
+### Verify before calling it fixed
+
+- Run focused `workout-drafts`, `exercise-log-inputs`, and `next-set-info` tests
+- Run `npm test`, `npm run lint`, `npm run build:android:web`, and `npm run sync:android`
+- On Android, edit a partial draft, return to Grind, log it, force-close/relaunch, toggle units, and exercise each cleanup boundary
+
 ## Quick Start For Future Agents
 
 Before large or risky work:

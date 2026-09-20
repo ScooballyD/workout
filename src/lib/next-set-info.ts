@@ -1,9 +1,24 @@
 import type { Exercise, TrainingPlan } from '../types.ts';
 import { getNextIncompleteSetIndex } from './exercise-progress.ts';
 import { getPlanExerciseSetCount, getPlanWeight } from './deload.ts';
+import type { ExerciseLogInputValue } from './exercise-log-inputs.ts';
 
 const roundGeneratedWeight = (weight: number) =>
   Math.round(weight * 4) / 4;
+
+export function resolveNextSetValues(
+  generated: { defaultWeight: number; defaultReps: number },
+  draft?: ExerciseLogInputValue
+) {
+  return {
+    weight: draft && draft.weightSource !== 'default'
+      ? draft.weight
+      : generated.defaultWeight,
+    reps: draft && draft.repsSource !== 'default'
+      ? draft.reps
+      : generated.defaultReps,
+  };
+}
 
 export function getNextSetInfo(
   exercise: Exercise,
