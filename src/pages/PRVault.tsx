@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Trophy } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
@@ -9,6 +9,7 @@ import {
   filterPrsByMuscleGroup,
   getPrChartDomain,
   getPrFilterOptions,
+  reconcilePrFilterSelection,
   togglePrExerciseFilter,
 } from '../lib/pr-vault';
 import { cn } from '../lib/utils';
@@ -26,20 +27,28 @@ export default function PRVault({
   const filters = getPrFilterOptions(prs, exercises);
   const workoutFilters = filters.filter(filter => filter !== ALL_PR_FILTER);
   const [selectedFilters, setSelectedFilters] = useState<string[]>(() => workoutFilters);
+  const previousWorkoutFilters = useRef<string[]>([]);
+  const filtersInitialized = useRef(false);
   const filteredPrs = filterPrsByMuscleGroup(prs, selectedFilters, exercises);
   const areAllFiltersSelected = workoutFilters.length > 0 && selectedFilters.length === workoutFilters.length;
 
   useEffect(() => {
-    setSelectedFilters(current => {
-      const next = workoutFilters.filter(filter => current.includes(filter));
+    const previousFilters = previousWorkoutFilters.current;
+    const wasInitialized = filtersInitialized.current;
+    const next = reconcilePrFilterSelection(
+      selectedFilters,
+      previousFilters,
+      workoutFilters,
+      wasInitialized,
+    );
 
-      if (next.length === current.length && next.every((filter, index) => filter === current[index])) {
-        return current;
-      }
+    if (next.length !== selectedFilters.length || next.some((filter, index) => filter !== selectedFilters[index])) {
+      setSelectedFilters(next);
+    }
 
-      return next;
-    });
-  }, [workoutFilters]);
+    previousWorkoutFilters.current = workoutFilters;
+    filtersInitialized.current = true;
+  }, [selectedFilters, workoutFilters]);
 
   return (
     <motion.div

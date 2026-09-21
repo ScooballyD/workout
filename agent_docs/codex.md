@@ -270,6 +270,38 @@ Prune drafts to the active plan/day/exercise/set contexts and clear them after l
 - Run `npm test`, `npm run lint`, `npm run build:android:web`, and `npm run sync:android`
 - On Android, edit a partial draft, return to Grind, log it, force-close/relaunch, toggle units, and exercise each cleanup boundary
 
+## 10. OneDrive Reparse Points Can Block Android Packaging
+
+### Issue
+
+Gradle can reject Capacitor-synchronized web assets when the checkout lives in OneDrive.
+
+### Failure mode
+
+`assembleDebug` fails while merging assets with an error that a file under `android/app/src/main/assets/public` is "not a regular file." Deleting and re-syncing that generated directory does not reliably help because OneDrive can recreate its files as reparse points.
+
+### Root cause
+
+Gradle snapshots Android assets as normal files, while OneDrive Files On-Demand may expose freshly generated Capacitor assets as reparse points.
+
+### Current safe pattern
+
+Keep the source checkout in OneDrive if needed, but build a disposable copy outside OneDrive (for example directly under `C:\\`) when this failure occurs. In that copy, run:
+
+- `npm install`
+- `npm run build:android:web`
+- `npm run sync:android`
+- `android\\gradlew.bat assembleDebug`
+
+Install the staged APK with `adb install -r` to preserve on-device test data. Do not commit generated `android/app/build`, `android/build`, or Capacitor asset outputs as a workaround.
+
+### Verify before calling it fixed
+
+- The staged Vite build succeeds
+- Capacitor sync succeeds
+- Gradle produces `app-debug.apk`
+- The APK installs on a physical device and launches normally
+
 ## Quick Start For Future Agents
 
 Before large or risky work:

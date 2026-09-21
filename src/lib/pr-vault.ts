@@ -127,6 +127,31 @@ export const getPrFilterOptions = (prs: PR[], exercises: Exercise[]) => {
   return [ALL_PR_FILTER, ...PRIMARY_MUSCLE_GROUPS.filter(group => seen.has(group))];
 };
 
+export const reconcilePrFilterSelection = (
+  selectedFilters: string[],
+  previousAvailableFilters: string[],
+  availableFilters: string[],
+  isInitialized: boolean,
+) => {
+  const workoutFilters = getMuscleGroupFilters(availableFilters);
+
+  if (!isInitialized) {
+    return workoutFilters;
+  }
+
+  const previousWorkoutFilters = getMuscleGroupFilters(previousAvailableFilters);
+  const normalizedSelection = normalizeSelection(selectedFilters, previousWorkoutFilters);
+  const hadAllPreviousFilters =
+    previousWorkoutFilters.length > 0 &&
+    previousWorkoutFilters.every(filter => normalizedSelection.has(normalizeFilterKey(filter)));
+
+  if (hadAllPreviousFilters) {
+    return workoutFilters;
+  }
+
+  return workoutFilters.filter(filter => normalizedSelection.has(normalizeFilterKey(filter)));
+};
+
 export const filterPrsByMuscleGroup = (
   prs: PR[],
   selectedFilters: string[],
