@@ -1,0 +1,6 @@
+# Copy these values to %USERPROFILE%/.gradle/gradle.properties. Do not save
+# passwords or keystores anywhere in this repository.
+MEGALIFTS_RELEASE_STORE_FILE=C:/secure/path/megalifts-upload.jks
+MEGALIFTS_RELEASE_STORE_PASSWORD=replace-with-keystore-password
+MEGALIFTS_RELEASE_KEY_ALIAS=megalifts-upload
+MEGALIFTS_RELEASE_KEY_PASSWORD=replace-with-key-password

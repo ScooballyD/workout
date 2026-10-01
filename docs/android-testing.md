@@ -8,7 +8,8 @@ Megalifts now has a Capacitor Android wrapper. The Android app runs from the bui
 - Android app id: `com.megalifts.app`
 - Web asset directory: `dist`
 
-Treat the app id as provisional until the release/signing workflow is finalized. Change it before the first signed tester release if needed.
+The app ID is the permanent Play identity for the first tester release. Do not
+change it after the first Play upload.
 
 ## Repeatable Build Flow
 
@@ -35,3 +36,4 @@ At that point the updated web bundle is copied into [android](C:/Users/carve/One
 - Keep `dist` as the source for the packaged Android assets.
 - Re-check routing and persistence after changes that touch app startup, navigation, or local storage behavior.
 - Do not commit signing keys, passwords, or release credentials to the repo.
+- See [android-tester-release.md](C:/Users/carve/OneDrive/Projects/workout/docs/android-tester-release.md) for the signed AAB, Play internal-testing, and rollback process.

@@ -83,3 +83,4 @@ Important:
 - Android tester builds use the web assets bundled into the native project from `dist`.
 - Web changes do not automatically reach installed Android builds; after app changes you must rebuild, sync, and create a new Android release.
 - See [docs/android-testing.md](C:/Users/carve/OneDrive/Projects/workout/docs/android-testing.md) for the repo-specific Android workflow.
+- See [docs/android-tester-release.md](C:/Users/carve/OneDrive/Projects/workout/docs/android-tester-release.md) for signed AAB creation and Google Play internal-testing distribution.

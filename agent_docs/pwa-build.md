@@ -33,6 +33,7 @@ This role is best for:
 - The repo now also has a Capacitor Android wrapper that packages the built web assets from `dist` into the native Android project.
 - For Android tester builds, web changes are not enough by themselves; the required follow-up path is `npm run build:android:web` and `npm run sync:android` before creating a new Android build.
 - Changes that affect routing, startup, service worker registration, or persistence should be sanity-checked with the Capacitor asset-sync flow because Android packaging consumes the built bundle, not the dev server.
+- If Gradle reports that synchronized Capacitor assets are not regular files in a OneDrive checkout, build from a disposable non-OneDrive staging copy instead of changing generated assets or tracking them in Git. See `agent_docs/codex.md` for the safe sequence.
 
 ## Anti-Patterns
 

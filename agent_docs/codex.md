@@ -302,6 +302,30 @@ Install the staged APK with `adb install -r` to preserve on-device test data. Do
 - Gradle produces `app-debug.apk`
 - The APK installs on a physical device and launches normally
 
+## 11. Android Studio's Keytool May Not Be On PATH
+
+### Issue
+
+PowerShell can report that `keytool` is not recognized while preparing Android
+release signing.
+
+### Root cause
+
+Android Studio includes a Java runtime with `keytool.exe`, but its `bin`
+directory is not necessarily added to the Windows `PATH`.
+
+### Current safe pattern
+
+Use the Android Studio bundled executable explicitly when a global JDK is not
+configured:
+
+```powershell
+& 'C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe' -help
+```
+
+Do not install another JDK solely for key generation unless Android Studio's
+bundled runtime is unavailable.
+
 ## Quick Start For Future Agents
 
 Before large or risky work:

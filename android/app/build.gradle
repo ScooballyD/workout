@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+def releaseSigningProperties = [
+    'MEGALIFTS_RELEASE_STORE_FILE',
+    'MEGALIFTS_RELEASE_STORE_PASSWORD',
+    'MEGALIFTS_RELEASE_KEY_ALIAS',
+    'MEGALIFTS_RELEASE_KEY_PASSWORD',
+]
+def missingReleaseSigningProperties = releaseSigningProperties.findAll { !project.hasProperty(it) }
+def hasReleaseSigning = missingReleaseSigningProperties.isEmpty()
+
 android {
     namespace = "com.megalifts.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,11 +25,37 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(project.property('MEGALIFTS_RELEASE_STORE_FILE'))
+                storePassword project.property('MEGALIFTS_RELEASE_STORE_PASSWORD')
+                keyAlias project.property('MEGALIFTS_RELEASE_KEY_ALIAS')
+                keyPassword project.property('MEGALIFTS_RELEASE_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    def releaseArtifactRequested = graph.allTasks.any { task ->
+        task.name in ['assembleRelease', 'bundleRelease', 'packageRelease', 'installRelease']
+    }
+
+    if (releaseArtifactRequested && !hasReleaseSigning) {
+        throw new GradleException(
+            "Release signing is not configured. Set these local Gradle properties: " +
+            missingReleaseSigningProperties.join(', ')
+        )
     }
 }
 
