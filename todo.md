@@ -2,7 +2,14 @@
 
 # Current tasks
 
+1. [P1] Prepare the first Android tester release artifact and distribution workflow using Google Play internal testing, with direct APK install only as a temporary fallback. Review the Capacitor Android delivery plan in [docs/superpowers/plans/2026-04-07-android-tester-distribution-capacitor.md](C:/Users/carve/OneDrive/Projects/workout/docs/superpowers/plans/2026-04-07-android-tester-distribution-capacitor.md), the generated Android project, and any release/docs files created during the earlier Capacitor tasks. The goal is to produce a signed Android release build, document the signing and release process safely, and create the tester-facing install/update instructions for the chosen distribution path. Do not commit secrets, keystores, or raw credentials, and keep the repo documentation focused on the repeatable workflow and recovery steps rather than private values. Verify by producing a release artifact successfully, confirming the documented install path is accurate, and updating the repo docs/todo state to reflect the tester-release workflow. Summary: create the first signed Android tester release workflow for Capacitor packaging.
+
 ## Completed tasks
-1. [P3] The Settings UNIT toggle now uses the same visual on/off direction as the other default-enabled toggles while still preserving `lbs` as the default unit and leaving conversion behavior unchanged.
-2. [P2] Today's workout list now deduplicates repeated scheduled exercise names before resolving exercise records, preserving first-occurrence order while preventing mirrored cards with shared state.
-3. [P2] Schedule rename/delete helpers now update any plan entry that still has an `exercises` array, so stale exercise names do not survive on rest-marked days and reappear later.
+1. [P1] Megalifts now has the base Capacitor Android wrapper in place, including Capacitor dependencies, `capacitor.config.ts`, and a generated `android/` project synced from the current `dist` build.
+2. [P1] The repo now has repeatable Capacitor Android packaging scripts and repo-specific docs covering the required rebuild-and-sync workflow before Android tester releases.
+3. [P2] The manager playbook now assigns specialist models by role and risk, requires documented fallbacks for unavailable models, preserves sequential safety, and reserves final approval and publishing authority for the manager and user.
+4. [P1] Android system back now follows Megalifts route history on nested screens and exits only from the root route, with toolbar and browser navigation preserved.
+5. [P1] Unlogged workout drafts now persist separately across detail navigation and Android relaunches, resolve source-aware values on Grind, convert with units, clear through lifecycle boundaries, and were verified on device through logging and workout completion.
+6. [P2] The empty Training Plans screen now explicitly fills the available mobile width while preserving the populated layout's existing cap, margins, and spacing.
+7. [P2] Rest-day handling is now a default-off persisted setting that automatically skips scheduled rest entries after workouts and when disabled on an active rest day, while retaining the optional explicit rest-day flow.
+8. [P1] The physical Android smoke test passed on a connected device, including the corrected PR Vault filter initialization, draft and back behavior, rest-day settings, offline relaunch, packaged build installation, and clean scoped Logcat; OneDrive packaging now has a documented non-synced staging workaround.

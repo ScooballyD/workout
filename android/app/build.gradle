@@ -1,0 +1,89 @@
+apply plugin: 'com.android.application'
+
+def releaseSigningProperties = [
+    'MEGALIFTS_RELEASE_STORE_FILE',
+    'MEGALIFTS_RELEASE_STORE_PASSWORD',
+    'MEGALIFTS_RELEASE_KEY_ALIAS',
+    'MEGALIFTS_RELEASE_KEY_PASSWORD',
+]
+def missingReleaseSigningProperties = releaseSigningProperties.findAll { !project.hasProperty(it) }
+def hasReleaseSigning = missingReleaseSigningProperties.isEmpty()
+
+android {
+    namespace = "com.megalifts.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.megalifts.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(project.property('MEGALIFTS_RELEASE_STORE_FILE'))
+                storePassword project.property('MEGALIFTS_RELEASE_STORE_PASSWORD')
+                keyAlias project.property('MEGALIFTS_RELEASE_KEY_ALIAS')
+                keyPassword project.property('MEGALIFTS_RELEASE_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    def releaseArtifactRequested = graph.allTasks.any { task ->
+        task.name in ['assembleRelease', 'bundleRelease', 'packageRelease', 'installRelease']
+    }
+
+    if (releaseArtifactRequested && !hasReleaseSigning) {
+        throw new GradleException(
+            "Release signing is not configured. Set these local Gradle properties: " +
+            missingReleaseSigningProperties.join(', ')
+        )
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

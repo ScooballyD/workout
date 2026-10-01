@@ -10,6 +10,10 @@ export interface ExerciseLogInputValue {
   repsSource: ExerciseLogInputSource;
 }
 
+export const shouldPersistExerciseLogInputValue = (
+  value: ExerciseLogInputValue
+): boolean => value.weightSource !== 'default' || value.repsSource !== 'default';
+
 interface ExerciseLogDefaultsOptions {
   autoIncrement: boolean;
   currentWeek: number;
@@ -53,6 +57,35 @@ export const createExerciseLogInputValues = (
       };
     }
   );
+
+export const hydrateExerciseLogInputValues = (
+  generatedValues: ExerciseLogInputValue[],
+  exercise: Exercise,
+  draftValues: ReadonlyArray<ExerciseLogInputValue | undefined>
+): ExerciseLogInputValue[] =>
+  generatedValues.map((generated, index) => {
+    const log = exercise.logs[index];
+    if (log?.completed) {
+      return {
+        weight: log.weight,
+        reps: log.reps,
+        weightSource: 'manual',
+        repsSource: 'manual',
+      };
+    }
+
+    const draft = draftValues[index];
+    if (!draft) {
+      return generated;
+    }
+
+    return {
+      weight: draft.weightSource === 'default' ? generated.weight : draft.weight,
+      reps: draft.repsSource === 'default' ? generated.reps : draft.reps,
+      weightSource: draft.weightSource,
+      repsSource: draft.repsSource,
+    };
+  });
 
 export const syncExerciseLogInputValues = (
   previousValues: ExerciseLogInputValue[],

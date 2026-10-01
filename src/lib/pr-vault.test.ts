@@ -7,6 +7,7 @@ import {
   getPrChartDomain,
   filterPrsByMuscleGroup,
   getPrFilterOptions,
+  reconcilePrFilterSelection,
   togglePrExerciseFilter,
 } from './pr-vault.ts';
 
@@ -59,6 +60,38 @@ test('getPrFilterOptions keeps ALL and adds only muscle groups present in PR dat
 
 test('getPrFilterOptions returns only ALL when there is no PR data', () => {
   assert.deepEqual(getPrFilterOptions([], []), ['ALL']);
+});
+
+test('reconcilePrFilterSelection selects all filters on first initialization', () => {
+  assert.deepEqual(
+    reconcilePrFilterSelection([], [], ['Chest'], false),
+    ['Chest'],
+  );
+});
+
+test('reconcilePrFilterSelection preserves intentional clear after filters disappear and return', () => {
+  assert.deepEqual(
+    reconcilePrFilterSelection([], ['Chest'], [], true),
+    [],
+  );
+  assert.deepEqual(
+    reconcilePrFilterSelection([], [], ['Chest'], true),
+    [],
+  );
+});
+
+test('reconcilePrFilterSelection keeps all selected when a new filter appears', () => {
+  assert.deepEqual(
+    reconcilePrFilterSelection(['Chest'], ['Chest'], ['Chest', 'Back'], true),
+    ['Chest', 'Back'],
+  );
+});
+
+test('reconcilePrFilterSelection removes filters that are no longer available', () => {
+  assert.deepEqual(
+    reconcilePrFilterSelection(['Chest', 'Back'], ['Chest', 'Back'], ['Chest'], true),
+    ['Chest'],
+  );
 });
 
 test('filterPrsByMuscleGroup returns no PRs when no filters are selected', () => {

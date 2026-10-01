@@ -221,6 +221,111 @@ Preserve the base-aware manifest handling in [vite.config.ts](C:/Users/carve/One
 - Inspect generated `dist/manifest.webmanifest`
 - Confirm `start_url`, `scope`, and icon URLs respect the configured base path
 
+## 8. Capacitor Android Back Must Follow Router History
+
+### Issue
+
+Android system back used to exit Megalifts from nested React Router screens instead of returning to the prior in-app route.
+
+### Failure mode
+
+Users lost the current workout flow when pressing Android back from exercise detail, Plans, PR Vault, or Settings. React Router history is not consumed automatically by Capacitor without an App-plugin listener.
+
+### Current safe pattern
+
+Use the official `@capacitor/app` plugin and mount one Android-only listener inside the router in [src/App.tsx](C:/Users/carve/OneDrive/Projects/workout/src/App.tsx). Keep route decisions in [src/lib/android-back.ts](C:/Users/carve/OneDrive/Projects/workout/src/lib/android-back.ts): use history for nested routes when available, replace-navigate to `/` for direct nested launches, and call `exitApp()` only at `/`.
+
+The listener lifecycle is asynchronous. Keep the current pathname and navigator in refs, serialize listener add/remove operations for React Strict Mode, retry registration failures safely, and block future registration if native listener removal fails. Never use `removeAllListeners`.
+
+### Verify before calling it fixed
+
+- Run `npm test`, `npm run lint`, `npm run build:android:web`, and `npm run sync:android`
+- Build the Android debug artifact and install it on a physical device
+- Verify exercise-detail system back, toolbar back, each bottom-navigation route, repeated back presses, root exit, and relaunch
+- Inspect process Logcat for AndroidRuntime, Capacitor, Chromium, and listener errors
+
+## 9. Workout Drafts Must Preserve Field-Level Sources
+
+### Issue
+
+Exercise Detail edits need to survive navigation and relaunch without being recorded as completed workout logs.
+
+### Failure mode
+
+Persisting route-local input values directly can freeze default values after a user edits a different field. Likewise, Grind can use a stale default from a partial draft if it treats any draft as authoritative for both weight and reps.
+
+### Root cause
+
+Each input field has independent `default`, `manual`, or `propagated` semantics. A draft with manual reps can still have a default-sourced weight, which must be regenerated when the current plan context changes.
+
+### Current safe pattern
+
+Keep unfinished values in the versioned `workout_drafts` storage key through [src/lib/workout-drafts.ts](C:/Users/carve/OneDrive/Projects/workout/src/lib/workout-drafts.ts), not in sparse `Exercise.logs` or backups. Persist a draft only when at least one field is manual or propagated. During hydration and Grind's next-set display/log resolution, resolve weight and reps independently: use the draft only for non-default sources and regenerate default-source values from the current plan defaults.
+
+Prune drafts to the active plan/day/exercise/set contexts and clear them after logging, workout completion, plan restart/deletion, exercise deletion, import, and wipe. Convert draft weights whenever units change while preserving source metadata.
+
+### Verify before calling it fixed
+
+- Run focused `workout-drafts`, `exercise-log-inputs`, and `next-set-info` tests
+- Run `npm test`, `npm run lint`, `npm run build:android:web`, and `npm run sync:android`
+- On Android, edit a partial draft, return to Grind, log it, force-close/relaunch, toggle units, and exercise each cleanup boundary
+
+## 10. OneDrive Reparse Points Can Block Android Packaging
+
+### Issue
+
+Gradle can reject Capacitor-synchronized web assets when the checkout lives in OneDrive.
+
+### Failure mode
+
+`assembleDebug` fails while merging assets with an error that a file under `android/app/src/main/assets/public` is "not a regular file." Deleting and re-syncing that generated directory does not reliably help because OneDrive can recreate its files as reparse points.
+
+### Root cause
+
+Gradle snapshots Android assets as normal files, while OneDrive Files On-Demand may expose freshly generated Capacitor assets as reparse points.
+
+### Current safe pattern
+
+Keep the source checkout in OneDrive if needed, but build a disposable copy outside OneDrive (for example directly under `C:\\`) when this failure occurs. In that copy, run:
+
+- `npm install`
+- `npm run build:android:web`
+- `npm run sync:android`
+- `android\\gradlew.bat assembleDebug`
+
+Install the staged APK with `adb install -r` to preserve on-device test data. Do not commit generated `android/app/build`, `android/build`, or Capacitor asset outputs as a workaround.
+
+### Verify before calling it fixed
+
+- The staged Vite build succeeds
+- Capacitor sync succeeds
+- Gradle produces `app-debug.apk`
+- The APK installs on a physical device and launches normally
+
+## 11. Android Studio's Keytool May Not Be On PATH
+
+### Issue
+
+PowerShell can report that `keytool` is not recognized while preparing Android
+release signing.
+
+### Root cause
+
+Android Studio includes a Java runtime with `keytool.exe`, but its `bin`
+directory is not necessarily added to the Windows `PATH`.
+
+### Current safe pattern
+
+Use the Android Studio bundled executable explicitly when a global JDK is not
+configured:
+
+```powershell
+& 'C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe' -help
+```
+
+Do not install another JDK solely for key generation unless Android Studio's
+bundled runtime is unavailable.
+
 ## Quick Start For Future Agents
 
 Before large or risky work:

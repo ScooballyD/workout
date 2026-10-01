@@ -30,16 +30,23 @@ This role is best for:
 - This repo has a known history of Vite/esbuild process-spawn differences in sandboxed environments.
 - Base-path correctness matters for subpath deployments; manifest `start_url`, `scope`, and icon URLs should remain base-aware.
 - Preview/build verification is mandatory for changes that touch PWA behavior.
+- The repo now also has a Capacitor Android wrapper that packages the built web assets from `dist` into the native Android project.
+- For Android tester builds, web changes are not enough by themselves; the required follow-up path is `npm run build:android:web` and `npm run sync:android` before creating a new Android build.
+- Changes that affect routing, startup, service worker registration, or persistence should be sanity-checked with the Capacitor asset-sync flow because Android packaging consumes the built bundle, not the dev server.
+- If Gradle reports that synchronized Capacitor assets are not regular files in a OneDrive checkout, build from a disposable non-OneDrive staging copy instead of changing generated assets or tracking them in Git. See `agent_docs/codex.md` for the safe sequence.
 
 ## Anti-Patterns
 
 - Treating a sandbox `spawn EPERM` as proof that the repo itself is broken.
 - Making forced dependency changes only to satisfy `npm audit` without understanding build impact.
 - Breaking manifest relative paths or subpath installability.
+- Assuming Android tester builds update from server deploys alone after Capacitor was introduced.
 
 ## Verification Expectations
 
 - Run `npm run lint`
 - Run `npm run build`
+- Run `npm run sync:android` when the work affects packaged Android assets or the Capacitor wrapper flow
 - Run `npm run preview` when installability, routing, manifest, or service worker behavior changes
 - Inspect generated output when the task touches manifest or build-time assets
+- For Android routing changes, install the debug build on a physical device and verify exercise-detail system back, toolbar back, bottom-navigation history, repeated back presses, root-only exit, relaunch, and process Logcat.

@@ -4,6 +4,8 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -42,11 +44,17 @@ import {
   applyRepsChangeToInputs,
   applyWeightChangeToInputs,
   createExerciseLogInputValues,
+  hydrateExerciseLogInputValues,
+  shouldPersistExerciseLogInputValue,
   syncExerciseLogInputValues,
   type ExerciseLogInputValue,
 } from './lib/exercise-log-inputs';
-import { getNextSetDisplayValues, getNextSetInfo } from './lib/next-set-info';
+import {
+  getNextSetInfo,
+  resolveNextSetValues,
+} from './lib/next-set-info';
 import { getLocalCalendarDateString } from './lib/local-date';
+import { getAndroidBackAction } from './lib/android-back';
 import { applyWorkoutPrUpdates } from './lib/pr-vault';
 import {
   addExerciseToPlanDay,
@@ -55,7 +63,7 @@ import {
   removeExerciseFromPlanDay,
   type PlanExerciseOption,
 } from './lib/plan-editor';
-import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete } from './lib/plan-progress';
+import { advancePlanProgress, getPlanProgressSnapshot, isPlanComplete, skipRestDays } from './lib/plan-progress';
 import { getPlanExerciseSetCount, isDeloadWeek } from './lib/deload.ts';
 import {
   buildPlanExerciseSetCounts,
@@ -71,6 +79,19 @@ import {
 } from './lib/exercise-management.ts';
 import { buildTodayExercises } from './lib/today-exercises.ts';
 import { completeWorkoutExercises } from './lib/workout-completion';
+import {
+  WORKOUT_DRAFTS_STORAGE_KEY,
+  convertWorkoutDraftWeights,
+  getWorkoutDraft,
+  parseWorkoutDrafts,
+  pruneWorkoutDrafts,
+  removeWorkoutDraft,
+  removeWorkoutDraftsForExercise,
+  removeWorkoutDraftsForPlan,
+  serializeWorkoutDrafts,
+  upsertWorkoutDraft,
+  type WorkoutDrafts,
+} from './lib/workout-drafts.ts';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
 import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
 import {
@@ -172,6 +193,89 @@ const buildPlanFocusSummary = (
 
 // --- Components ---
 
+const AndroidBackHandler = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pathnameRef = useRef(location.pathname);
+  const navigateRef = useRef(navigate);
+  const listenerOperationsRef = useRef<Promise<void>>(Promise.resolve());
+  const listenerCleanupFailedRef = useRef(false);
+  pathnameRef.current = location.pathname;
+  navigateRef.current = navigate;
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') {
+      return;
+    }
+
+    let disposed = false;
+    let listener: PluginListenerHandle | undefined;
+
+    const removeListener = async (handle: PluginListenerHandle) => {
+      try {
+        await handle.remove();
+      } catch (error) {
+        listenerCleanupFailedRef.current = true;
+        console.error('Android back listener removal failed.', error);
+      }
+    };
+
+    const addListenerOperation = listenerOperationsRef.current.then(async () => {
+      if (disposed || listenerCleanupFailedRef.current) {
+        return;
+      }
+
+      try {
+        const handle = await CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+          const action = getAndroidBackAction(pathnameRef.current, canGoBack);
+
+          if (action === 'history-back') {
+            navigateRef.current(-1);
+            return;
+          }
+
+          if (action === 'navigate-root') {
+            navigateRef.current('/', { replace: true });
+            return;
+          }
+
+          void CapacitorApp.exitApp().catch((error: unknown) => {
+            console.error('Android back app exit failed.', error);
+          });
+        });
+
+        if (disposed) {
+          await removeListener(handle);
+          return;
+        }
+
+        listener = handle;
+      } catch (error) {
+        console.error('Android back listener registration failed.', error);
+      }
+    });
+    listenerOperationsRef.current = addListenerOperation;
+    void addListenerOperation.catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      const removeListenerOperation = listenerOperationsRef.current.then(async () => {
+        if (!listener) {
+          return;
+        }
+
+        const handle = listener;
+        listener = undefined;
+        await removeListener(handle);
+      });
+      listenerOperationsRef.current = removeListenerOperation;
+      void removeListenerOperation.catch(() => undefined);
+    };
+  }, []);
+
+  return null;
+};
+
 const BottomNav = () => {
   const location = useLocation();
   const navItems = [
@@ -208,12 +312,16 @@ const BottomNav = () => {
 const DailyGrind = ({ 
   exercises, 
   activePlan,
+  planDay,
+  workoutDrafts,
   unit,
   onLogSet,
   onCompleteWorkout 
 }: { 
   exercises: Exercise[], 
   activePlan?: TrainingPlan,
+  planDay: number,
+  workoutDrafts: WorkoutDrafts,
   unit: Settings['unit'],
   onLogSet: (id: string, setIndex: number, weight: number, reps: number) => void,
   onCompleteWorkout: () => void 
@@ -237,7 +345,19 @@ const DailyGrind = ({
       plan: activePlan,
     });
     if (actualSetIndex === null) return;
-    onLogSet(activeExercise.id, actualSetIndex, defaultWeight, defaultReps);
+    const draft = activePlan
+      ? getWorkoutDraft(workoutDrafts, {
+          planId: activePlan.id,
+          planDay,
+          exerciseId: activeExercise.id,
+          setIndex: actualSetIndex,
+        })
+      : undefined;
+    const resolved = resolveNextSetValues(
+      { defaultWeight, defaultReps },
+      draft
+    );
+    onLogSet(activeExercise.id, actualSetIndex, resolved.weight, resolved.reps);
   };
 
   return (
@@ -266,12 +386,30 @@ const DailyGrind = ({
           const completed = isCompleted(ex);
           const isActive = idx === activeIndex;
           const setCount = getExerciseSetCount(ex);
-          const nextSetDisplay = getNextSetDisplayValues(ex, {
+          const nextSetInfo = getNextSetInfo(ex, {
             autoIncrement,
             currentWeek,
             plan: activePlan,
-            unit,
           });
+          const nextSetDraft = activePlan && nextSetInfo.actualSetIndex !== null
+            ? getWorkoutDraft(workoutDrafts, {
+                planId: activePlan.id,
+                planDay,
+                exerciseId: ex.id,
+                setIndex: nextSetInfo.actualSetIndex,
+              })
+            : undefined;
+          const resolvedNextSet = resolveNextSetValues(nextSetInfo, nextSetDraft);
+          const nextSetDisplay = nextSetInfo.actualSetIndex === null
+            ? { weight: '-', reps: '-' }
+            : {
+                weight: resolvedNextSet.weight > 0
+                  ? `${resolvedNextSet.weight}${unit.toUpperCase()}`
+                  : '-',
+                reps: resolvedNextSet.reps > 0
+                  ? String(resolvedNextSet.reps)
+                  : ex.reps,
+              };
           
           return (
             <Link 
@@ -350,10 +488,13 @@ const DailyGrind = ({
   );
 };
 
-const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, onAddSet, onRemoveSet }: {
+const ExerciseLog = ({ exercises, activePlan, planDay, workoutDrafts, settings, onDraftInputsChange, onLogSet, onUnlogSet, onAddSet, onRemoveSet }: {
   exercises: Exercise[],
   activePlan?: TrainingPlan,
+  planDay: number,
+  workoutDrafts: WorkoutDrafts,
   settings: Settings,
+  onDraftInputsChange: (exerciseId: string, values: ExerciseLogInputValue[]) => void,
   onLogSet: (id: string, setIndex: number, weight: number, reps: number) => void,
   onUnlogSet: (id: string, setIndex: number) => void,
   onAddSet: (id: string) => void,
@@ -367,7 +508,27 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
   const currentWeek = activePlan?.currentWeek || 1;
   const isFinalDeloadWeek = isDeloadWeek(activePlan, currentWeek);
   const [inputValues, setInputValues] = useState<ExerciseLogInputValue[]>(
-    () => exercise ? createExerciseLogInputValues(exercise, { autoIncrement, currentWeek, plan: activePlan }) : []
+    () => {
+      if (!exercise) return [];
+      const generated = createExerciseLogInputValues(exercise, {
+        autoIncrement,
+        currentWeek,
+        plan: activePlan,
+      });
+      if (!activePlan) return generated;
+      return hydrateExerciseLogInputValues(
+        generated,
+        exercise,
+        generated.map((_, setIndex) =>
+          getWorkoutDraft(workoutDrafts, {
+            planId: activePlan.id,
+            planDay,
+            exerciseId: exercise.id,
+            setIndex,
+          })
+        )
+      );
+    }
   );
   const previousExerciseIdRef = useRef<string | undefined>(exercise?.id);
 
@@ -375,29 +536,55 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
   useEffect(() => {
     if (!exercise) return;
     const shouldResetDrafts = previousExerciseIdRef.current !== exercise.id;
-    setInputValues((prev) =>
-      syncExerciseLogInputValues(
+    setInputValues((prev) => {
+      const synced = syncExerciseLogInputValues(
         prev,
         exercise,
         { autoIncrement, currentWeek, plan: activePlan },
         shouldResetDrafts
-      )
-    );
+      );
+      if (!activePlan) return synced;
+      return hydrateExerciseLogInputValues(
+        synced,
+        exercise,
+        synced.map((_, setIndex) =>
+          getWorkoutDraft(workoutDrafts, {
+            planId: activePlan.id,
+            planDay,
+            exerciseId: exercise.id,
+            setIndex,
+          })
+        )
+      );
+    });
     previousExerciseIdRef.current = exercise.id;
-  }, [exercise, activePlan, autoIncrement, currentWeek]);
+  }, [exercise, activePlan, autoIncrement, currentWeek, planDay, workoutDrafts]);
 
   if (!exercise) return <div>Exercise not found</div>;
   const planSetCount = getPlanExerciseSetCount(exercise, activePlan, currentWeek);
   const nextIncompleteSetIndex = getNextIncompleteSetIndex(exercise.logs, planSetCount);
 
   const handleWeightChange = (i: number, value: number) => {
-    setInputValues((prev) =>
-      applyWeightChangeToInputs(prev, exercise, i, value, settings.matchWeight, {
+    const nextValues = applyWeightChangeToInputs(
+      inputValues,
+      exercise,
+      i,
+      value,
+      settings.matchWeight,
+      {
         plan: activePlan,
         autoIncrement,
         currentWeek,
-      })
+      }
     );
+    setInputValues(nextValues);
+    onDraftInputsChange(exercise.id, nextValues);
+  };
+
+  const handleRepsChange = (i: number, value: number) => {
+    const nextValues = applyRepsChangeToInputs(inputValues, i, value);
+    setInputValues(nextValues);
+    onDraftInputsChange(exercise.id, nextValues);
   };
 
   return (
@@ -473,7 +660,7 @@ const ExerciseLog = ({ exercises, activePlan, settings, onLogSet, onUnlogSet, on
                 value={currentReps}
                 disabled={isCompleted}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setInputValues((prev) => applyRepsChangeToInputs(prev, i, Number(e.target.value)))
+                  handleRepsChange(i, Number(e.target.value))
                 }
               />
               <button
@@ -534,7 +721,7 @@ const TrainingPlans = ({ plans, activePlanId, onSelectPlan, onRestartPlan, onDel
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       exit={{ opacity: 0 }}
-      className="flex-1 px-6 pt-24 pb-32 max-w-2xl mx-auto"
+      className="flex-1 w-full px-6 pt-24 pb-32 max-w-2xl mx-auto"
     >
       <div className="mb-12">
         <h2 className="font-display text-6xl tracking-tight leading-none text-text-main uppercase">TRAINING<br/><span className="text-primary">PLANS</span></h2>
@@ -1246,6 +1433,7 @@ const SettingsPage = ({
   setSettings,
   exercises,
   onToggleUnit,
+  onToggleRestDays,
   onWipeData,
   onExportData,
   onImportData,
@@ -1256,6 +1444,7 @@ const SettingsPage = ({
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   exercises: Exercise[];
   onToggleUnit: () => void;
+  onToggleRestDays: () => void;
   onWipeData: () => void;
   onExportData: () => void;
   onImportData: (data: ImportedBackupData) => void;
@@ -1328,6 +1517,18 @@ const SettingsPage = ({
             className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.matchWeight ? "bg-primary" : "bg-muted")}
           >
             <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.matchWeight ? "left-11" : "left-1")} />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black">
+          <span className="text-xl font-bold uppercase tracking-wider">REST DAYS</span>
+          <button
+            onClick={onToggleRestDays}
+            aria-label="Rest days"
+            aria-pressed={settings.includeRestDays}
+            className={cn("w-20 h-10 rounded-sm relative transition-colors", settings.includeRestDays ? "bg-primary" : "bg-muted")}
+          >
+            <div className={cn("absolute top-1 w-8 h-8 bg-white rounded-sm transition-all", settings.includeRestDays ? "left-11" : "left-1")} />
           </button>
         </div>
 
@@ -1457,12 +1658,22 @@ export default function App() {
       DEFAULT_SETTINGS
     );
   });
+  const [workoutDrafts, setWorkoutDrafts] = useState<WorkoutDrafts>(() =>
+    parseWorkoutDrafts(localStorage.getItem(WORKOUT_DRAFTS_STORAGE_KEY))
+  );
 
   useEffect(() => { localStorage.setItem('workout_exercises', JSON.stringify(exercises)); }, [exercises]);
   useEffect(() => { localStorage.setItem('workout_prs', JSON.stringify(prs)); }, [prs]);
   useEffect(() => { localStorage.setItem('workout_plans', JSON.stringify(plans)); }, [plans]);
   useEffect(() => { if (activePlanId) localStorage.setItem('workout_activePlanId', activePlanId); else localStorage.removeItem('workout_activePlanId'); }, [activePlanId]);
   useEffect(() => { localStorage.setItem('workout_settings', JSON.stringify(settings)); }, [settings]);
+  useEffect(() => {
+    if (Object.keys(workoutDrafts).length === 0) {
+      localStorage.removeItem(WORKOUT_DRAFTS_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(WORKOUT_DRAFTS_STORAGE_KEY, serializeWorkoutDrafts(workoutDrafts));
+  }, [workoutDrafts]);
   useEffect(() => {
     if (activePlanId && !plans.some((plan) => plan.id === activePlanId)) {
       setActivePlanId(null);
@@ -1490,21 +1701,47 @@ export default function App() {
       weight: convert(pr.weight),
       history: pr.history.map(h => ({ ...h, weight: convert(h.weight) }))
     })));
+
+    setWorkoutDrafts(prev => convertWorkoutDraftWeights(prev, convert));
+  };
+
+  const handleToggleRestDays = () => {
+    const includeRestDays = !settings.includeRestDays;
+
+    setSettings((current) => ({ ...current, includeRestDays }));
+    if (!includeRestDays) {
+      setPlans((currentPlans) => currentPlans.map((plan) =>
+        plan.id === activePlanId ? skipRestDays(plan) : plan
+      ));
+    }
   };
 
   const handleLogSet = (exId: string, setIndex: number, weight: number, reps: number) => {
-    let loggedSet = false;
+    const exerciseExists = exercises.some((exercise) => exercise.id === exId);
+    if (!exerciseExists) {
+      return;
+    }
 
     setExercises(prev => prev.map(ex => {
       if (ex.id !== exId) return ex;
       const newLogs = [...ex.logs];
       newLogs[setIndex] = { weight, reps, completed: true };
-      loggedSet = true;
       return { ...ex, logs: newLogs };
     }));
 
+    const draftPlan = plans.find((plan) => plan.id === activePlanId);
+    if (draftPlan) {
+      setWorkoutDrafts((prev) =>
+        removeWorkoutDraft(prev, {
+          planId: draftPlan.id,
+          planDay: draftPlan.currentDay,
+          exerciseId: exId,
+          setIndex,
+        })
+      );
+    }
+
     if (
-      loggedSet &&
       settings.hapticFeedback &&
       typeof navigator !== 'undefined' &&
       typeof navigator.vibrate === 'function'
@@ -1709,6 +1946,7 @@ export default function App() {
         candidate.id === planId ? restartPlanProgress(candidate) : candidate
       )
     );
+    setWorkoutDrafts((prev) => removeWorkoutDraftsForPlan(prev, planId));
   };
 
   const handleDeletePlan = (planId: string) => {
@@ -1724,6 +1962,7 @@ export default function App() {
     const result = deletePlanById(plans, planId, activePlanId);
     setPlans(result.plans);
     setActivePlanId(result.activePlanId);
+    setWorkoutDrafts((prev) => removeWorkoutDraftsForPlan(prev, planId));
   };
 
   const handleCompleteWorkout = () => {
@@ -1753,8 +1992,9 @@ export default function App() {
     // Advance day counter for the active plan
     setPlans(prev => prev.map(p => {
       if (p.id !== activePlanId) return p;
-      return advancePlanProgress(p);
+      return advancePlanProgress(p, settings.includeRestDays);
     }));
+    setWorkoutDrafts({});
     // Scroll to top
     window.scrollTo(0, 0);
   };
@@ -1776,6 +2016,7 @@ export default function App() {
     setPlans(data.plans);
     setActivePlanId(data.activePlanId);
     setSettings(data.settings);
+    setWorkoutDrafts({});
   };
 
   const applyExerciseManagementState = (nextState: {
@@ -1823,6 +2064,7 @@ export default function App() {
         exerciseId,
       })
     );
+    setWorkoutDrafts((prev) => removeWorkoutDraftsForExercise(prev, exerciseId));
   };
 
   const handleWipeData = () => {
@@ -1836,6 +2078,7 @@ export default function App() {
     setPlans([]);
     setActivePlanId(null);
     setSettings(DEFAULT_SETTINGS);
+    setWorkoutDrafts({});
   };
 
   const activePlan = plans.find(p => p.id === activePlanId);
@@ -1852,8 +2095,79 @@ export default function App() {
     ? buildTodayExercises(todaySchedule.exercises ?? [], exercises)
     : [];
 
+  useEffect(() => {
+    if (
+      !activePlan ||
+      planIsComplete ||
+      !todaySchedule ||
+      todaySchedule.type !== 'workout'
+    ) {
+      setWorkoutDrafts((prev) => pruneWorkoutDrafts(prev, []));
+      return;
+    }
+
+    const validContexts = buildTodayExercises(
+      todaySchedule.exercises ?? [],
+      exercises
+    ).flatMap((exercise) =>
+      Array.from(
+        { length: getPlanExerciseSetCount(exercise, activePlan, currentWeek) },
+        (_, setIndex) => ({
+          planId: activePlan.id,
+          planDay: activePlan.currentDay,
+          exerciseId: exercise.id,
+          setIndex,
+        })
+      ).filter((context) => !exercise.logs[context.setIndex]?.completed)
+    );
+
+    setWorkoutDrafts((prev) => pruneWorkoutDrafts(prev, validContexts));
+  }, [activePlan, currentWeek, exercises, planIsComplete, todaySchedule]);
+
+  const handleDraftInputsChange = (
+    exerciseId: string,
+    values: ExerciseLogInputValue[]
+  ) => {
+    if (
+      !activePlan ||
+      planIsComplete ||
+      todaySchedule?.type !== 'workout' ||
+      !todayExercises.some((exercise) => exercise.id === exerciseId)
+    ) {
+      return;
+    }
+
+    const exercise = exercises.find((candidate) => candidate.id === exerciseId);
+    if (!exercise) {
+      return;
+    }
+
+    setWorkoutDrafts((prev) =>
+      values.reduce((nextDrafts, value, setIndex) => {
+        const context = {
+          planId: activePlan.id,
+          planDay: activePlan.currentDay,
+          exerciseId,
+          setIndex,
+        };
+        const withoutPreviousValue = removeWorkoutDraft(nextDrafts, context);
+        if (
+          exercise.logs[setIndex]?.completed ||
+          !shouldPersistExerciseLogInputValue(value)
+        ) {
+          return withoutPreviousValue;
+        }
+        return upsertWorkoutDraft(withoutPreviousValue, {
+          ...context,
+          ...value,
+        });
+      }, prev)
+    );
+  };
+
   return (
     <Router>
+      <AndroidBackHandler />
       <div className="min-h-screen bg-black text-text-main flex flex-col">
         <Routes>
           <Route path="/" element={
@@ -1880,6 +2194,8 @@ export default function App() {
                   <DailyGrind 
                     exercises={todayExercises} 
                     activePlan={activePlan}
+                    planDay={activePlan.currentDay}
+                    workoutDrafts={workoutDrafts}
                     unit={settings.unit}
                     onLogSet={handleLogSet}
                     onCompleteWorkout={handleCompleteWorkout} 
@@ -1909,7 +2225,10 @@ export default function App() {
             <ExerciseLog 
               exercises={exercises} 
               activePlan={activePlan}
+              planDay={activePlan?.currentDay ?? dayCounter}
+              workoutDrafts={workoutDrafts}
               settings={settings}
+              onDraftInputsChange={handleDraftInputsChange}
               onLogSet={handleLogSet} 
               onUnlogSet={handleUnlogSet}
               onAddSet={handleAddSet} 
@@ -1960,6 +2279,7 @@ export default function App() {
                 setSettings={setSettings}
                 exercises={exercises}
                 onToggleUnit={handleToggleUnit}
+                onToggleRestDays={handleToggleRestDays}
                 onWipeData={handleWipeData}
                 onExportData={handleExportData}
                 onImportData={handleImportData}
