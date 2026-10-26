@@ -28,6 +28,8 @@ This role is best for:
 ## High-Value Context
 
 - This repo has a known history of Vite/esbuild process-spawn differences in sandboxed environments.
+- GitHub main is protected by the active `Main PR and CI protection` ruleset. Required CI context is `validate` from GitHub Actions App 15368; coordinate ruleset changes before renaming that job. See `docs/github/main-protection.md` for policy and verification limits.
+- Root ignore rules cover local signing/key formats across the repo; keep release credentials in user-local Gradle properties, not tracked `android/gradle.properties`. PEM is default-ignored; any intentional public PEM needs a reviewed exact-path exception. See `docs/secret-prevention.md`.
 - Base-path correctness matters for subpath deployments; manifest `start_url`, `scope`, and icon URLs should remain base-aware.
 - Preview/build verification is mandatory for changes that touch PWA behavior.
 - The repo now also has a Capacitor Android wrapper that packages the built web assets from `dist` into the native Android project.

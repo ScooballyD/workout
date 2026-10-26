@@ -39,6 +39,12 @@ Primary files often include:
 - Exercise logs and last logs are sparse arrays; code must tolerate `undefined` entries.
 - Plan lifecycle changes often span types, normalization, progress helpers, and app wiring.
 - Deload behavior depends on explicit persisted plan metadata rather than inference.
+- `src/lib/data-limits.ts` owns import/restore resource bounds. Reject excessive counts and collections before allocation/rendering; do not silently truncate saved plans or history.
+- Generated schedule descriptions have their own derived bound (name count * name length + separators), not the single-name text cap. Test editor output through persistence/export/migration whenever producer or validator limits change.
+- Primary state and drafts now commit through the single `workout_state_v1` snapshot in `src/lib/workout-storage.ts`. Import must persist successfully before the UI adopts the new data; independent per-field storage writes can create partial imports.
+- Invalid/unreadable saved data pauses automatic saving so fallback defaults cannot overwrite the original. Preserve legacy keys during migration failure; explicit reset must handle stale legacy copies too.
+- Keep recovery protection independent of warning text/kind: failed import/export/reset must not unlock autosave. Raw saved-data recovery exports are distinct from normal backups and current-session exports.
+- Backups keep the version-1 export shape and exclude unfinished drafts. Test ordinary exports for re-import compatibility with the byte limit, and use isolated fake/browser storage for quota and recovery scenarios.
 
 ## Anti-Patterns
 

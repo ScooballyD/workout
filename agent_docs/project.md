@@ -84,13 +84,21 @@ The app is designed around quick phone use:
 
 ## Persistence Model
 
-All primary data is stored in `localStorage`:
+Primary data and unfinished input drafts are stored together in the versioned
+`workout_state_v1` localStorage snapshot. One complete write commits an import
+before React adopts it; normal saving failures retain pending in-memory edits
+and expose retry/export controls.
 
-- `workout_exercises`
-- `workout_prs`
-- `workout_plans`
-- `workout_activePlanId`
-- `workout_settings`
+The legacy keys `workout_exercises`, `workout_prs`, `workout_plans`,
+`workout_activePlanId`, `workout_settings`, and `workout_drafts` are read when no
+canonical snapshot exists. They are not authoritative after migration. Do not
+write those keys directly in current application code or assume changing one
+changes a current app's saved state.
+
+`src/lib/data-limits.ts` defines shared resource bounds; `backup.ts` applies
+them to import/restore and `workout-storage.ts` owns atomic snapshot persistence
+and recovery. Invalid or unreadable saved data must not be overwritten with
+fallback defaults automatically. See `docs/backup-safety.md` for the limits.
 
 Backups export and import the same logical state. Import validation is important in this repo because malformed data can break runtime assumptions if it bypasses normalization. Older stored records and backups may not contain newly added fields, so backward-compatible normalization matters whenever the data model changes.
 

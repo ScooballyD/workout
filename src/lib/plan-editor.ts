@@ -2,6 +2,7 @@ import {
   DEFAULT_PRIMARY_MUSCLE_GROUP,
   type PrimaryMuscleGroup,
 } from './exercise-tags.ts';
+import { DATA_LIMITS } from './data-limits.ts';
 
 export interface PlanEditorDay {
   type: 'workout' | 'rest';
@@ -26,10 +27,31 @@ export const normalizePlanExerciseName = (value: string) => value.trim().toUpper
 export const buildWorkoutDescription = (exercises: string[]) =>
   exercises.length > 0 ? exercises.join(', ') : DEFAULT_WORKOUT_DESCRIPTION;
 
+const getPlanExerciseNameError = (value: string): string | null => {
+  const normalizedName = normalizePlanExerciseName(value);
+  return normalizedName.length > DATA_LIMITS.maxTextLength
+    ? `EXERCISE NAME MUST BE ${DATA_LIMITS.maxTextLength} CHARACTERS OR FEWER`
+    : null;
+};
+
+export const getPlanExerciseAdditionError = (
+  day: PlanEditorDay,
+  value: string
+): string | null => {
+  const nameError = getPlanExerciseNameError(value);
+  if (nameError) {
+    return nameError;
+  }
+
+  return day.exercises.length >= DATA_LIMITS.maxScheduledExercisesPerDay
+    ? `A DAY CAN HAVE AT MOST ${DATA_LIMITS.maxScheduledExercisesPerDay} EXERCISES`
+    : null;
+};
+
 export const addExerciseToPlanDay = (day: PlanEditorDay, value: string): PlanEditorDay => {
   const exerciseName = normalizePlanExerciseName(value);
 
-  if (!exerciseName) {
+  if (!exerciseName || getPlanExerciseAdditionError(day, value)) {
     return day;
   }
 
@@ -58,7 +80,7 @@ export const buildPlanExerciseDraft = (
   primaryMuscle: PrimaryMuscleGroup = DEFAULT_PRIMARY_MUSCLE_GROUP
 ): PlanExerciseDraft | null => {
   const name = normalizePlanExerciseName(value);
-  if (!name) {
+  if (!name || getPlanExerciseNameError(value)) {
     return null;
   }
 

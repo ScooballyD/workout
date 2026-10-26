@@ -4,9 +4,12 @@ import test from 'node:test';
 import {
   addExerciseToPlanDay,
   buildPlanExerciseDraft,
+  getPlanExerciseAdditionError,
   getPlanExerciseSuggestions,
   removeExerciseFromPlanDay,
+  type PlanEditorDay,
 } from './plan-editor.ts';
+import { DATA_LIMITS } from './data-limits.ts';
 
 test('addExerciseToPlanDay appends a normalized manual entry and updates the description', () => {
   const next = addExerciseToPlanDay(
@@ -99,4 +102,52 @@ test('buildPlanExerciseDraft falls back to Other when no tag is provided', () =>
     name: 'AB WHEEL',
     primaryMuscle: 'Other',
   });
+});
+
+test('editor accepts a 200-character normalized name and rejects 201 characters without mutation', () => {
+  const day: PlanEditorDay = {
+    type: 'workout',
+    exercises: [],
+    description: 'ASSIGN ROUTINE',
+  };
+  const acceptedName = 'a'.repeat(DATA_LIMITS.maxTextLength);
+  const accepted = addExerciseToPlanDay(day, acceptedName);
+
+  assert.equal(accepted.exercises[0].length, DATA_LIMITS.maxTextLength);
+
+  const rejectedName = 'a'.repeat(DATA_LIMITS.maxTextLength + 1);
+  assert.match(getPlanExerciseAdditionError(day, rejectedName) ?? '', /200/);
+  assert.equal(addExerciseToPlanDay(day, rejectedName), day);
+  assert.equal(buildPlanExerciseDraft([], rejectedName), null);
+});
+
+test('editor validates the normalized name after uppercase expansion', () => {
+  const day: PlanEditorDay = {
+    type: 'workout',
+    exercises: [],
+    description: 'ASSIGN ROUTINE',
+  };
+  const expandsPastLimit = `${'a'.repeat(DATA_LIMITS.maxTextLength - 1)}ß`;
+
+  assert.equal(expandsPastLimit.length, DATA_LIMITS.maxTextLength);
+  assert.equal(expandsPastLimit.toUpperCase().length, DATA_LIMITS.maxTextLength + 1);
+  assert.match(getPlanExerciseAdditionError(day, expandsPastLimit) ?? '', /200/);
+  assert.equal(addExerciseToPlanDay(day, expandsPastLimit), day);
+  assert.equal(buildPlanExerciseDraft([], expandsPastLimit), null);
+});
+
+test('editor accepts the 100th exercise and rejects the 101st without mutation', () => {
+  const day = {
+    type: 'workout' as const,
+    exercises: Array.from(
+      { length: DATA_LIMITS.maxScheduledExercisesPerDay - 1 },
+      (_, index) => `EXERCISE ${index}`
+    ),
+    description: 'existing description',
+  };
+  const atLimit = addExerciseToPlanDay(day, 'EXERCISE 99');
+
+  assert.equal(atLimit.exercises.length, DATA_LIMITS.maxScheduledExercisesPerDay);
+  assert.match(getPlanExerciseAdditionError(atLimit, 'EXERCISE 100') ?? '', /100/);
+  assert.equal(addExerciseToPlanDay(atLimit, 'EXERCISE 100'), atLimit);
 });
