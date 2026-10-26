@@ -30,6 +30,12 @@ The export flow writes a JSON file named like `workout-backup-YYYY-MM-DD.json`. 
 
 The import flow reads a JSON file in the browser, validates its structure, and then replaces the current in-browser data with the imported snapshot. It does not merge records.
 
+Imports are limited to 2 MiB and bounded collection/count/text values to avoid
+excessive memory use. A complete imported snapshot must be saved successfully
+before it replaces the current data. Storage failures are shown with recovery
+controls rather than silently discarding the previous saved state. See
+[Backup Safety And Recovery](docs/backup-safety.md) for limits and recovery behavior.
+
 If the imported backup references an active plan that no longer exists in the imported plan list, the app clears the active plan selection instead of keeping an invalid reference.
 
 The wipe flow is destructive. It resets the app to the built-in starter state:

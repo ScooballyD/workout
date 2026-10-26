@@ -30,6 +30,7 @@ Primary files vary by task, but this role should usually own test files and veri
 - This repo uses Node’s built-in test runner for `.test.ts` files.
 - Focused helper tests are valuable for persistence, log behavior, and PR Vault helper semantics.
 - Repo-level completion still belongs to the manager, even if a verification specialist runs a focused test suite.
+- For destructive backup/failure-injection device tests, use an isolated temporary package rather than replacing tester data. An init-script ID override must run at Android `finalizeDsl`; check APK output metadata before installing, and rebuild normal output afterward. Distinguish CDP file injection/export Blob checks from actual Android picker/download coverage.
 
 ## Anti-Patterns
 

@@ -3,9 +3,11 @@ import {
   type ExerciseLogInputSource,
   type ExerciseLogInputValue,
 } from './exercise-log-inputs.ts';
+import { DATA_LIMITS, isBoundedArray, isBoundedText, isSafeIntegerInRange } from './data-limits.ts';
 
 export const WORKOUT_DRAFTS_STORAGE_KEY = 'workout_drafts';
 const WORKOUT_DRAFTS_VERSION = 1;
+export const MAX_WORKOUT_DRAFTS = 10_000;
 
 export interface WorkoutDraftContext {
   planId: string;
@@ -24,11 +26,8 @@ const INPUT_SOURCES: ExerciseLogInputSource[] = [
   'propagated',
 ];
 
-const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0;
-
-const isNonNegativeInteger = (value: unknown): value is number =>
-  Number.isInteger(value) && Number(value) >= 0;
+const isBoundedIdentifier = (value: unknown): value is string =>
+  isBoundedText(value, DATA_LIMITS.maxIdentifierLength) && value.trim().length > 0;
 
 const isNonNegativeFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -43,10 +42,10 @@ const normalizeWorkoutDraft = (value: unknown): WorkoutDraft | null => {
 
   const candidate = value as Partial<WorkoutDraft>;
   if (
-    !isNonEmptyString(candidate.planId) ||
-    !isNonNegativeInteger(candidate.planDay) ||
-    !isNonEmptyString(candidate.exerciseId) ||
-    !isNonNegativeInteger(candidate.setIndex) ||
+    !isBoundedIdentifier(candidate.planId) ||
+    !isSafeIntegerInRange(candidate.planDay, 0, DATA_LIMITS.maxPlanWeeks * 7 + 1) ||
+    !isBoundedIdentifier(candidate.exerciseId) ||
+    !isSafeIntegerInRange(candidate.setIndex, 0, DATA_LIMITS.maxSetsPerExercise - 1) ||
     !isNonNegativeFiniteNumber(candidate.weight) ||
     !isNonNegativeFiniteNumber(candidate.reps) ||
     !isInputSource(candidate.weightSource) ||
@@ -69,6 +68,22 @@ const normalizeWorkoutDraft = (value: unknown): WorkoutDraft | null => {
   return shouldPersistExerciseLogInputValue(normalized) ? normalized : null;
 };
 
+export const normalizeWorkoutDraftArray = (value: unknown): WorkoutDrafts | null => {
+  if (!isBoundedArray(value, MAX_WORKOUT_DRAFTS)) {
+    return null;
+  }
+
+  const drafts: WorkoutDrafts = {};
+  for (const item of value) {
+    const normalized = normalizeWorkoutDraft(item);
+    if (!normalized) {
+      return null;
+    }
+    drafts[createWorkoutDraftKey(normalized)] = normalized;
+  }
+  return drafts;
+};
+
 export const createWorkoutDraftKey = (context: WorkoutDraftContext): string =>
   JSON.stringify([
     context.planId,
@@ -88,7 +103,7 @@ export const parseWorkoutDrafts = (raw: string | null): WorkoutDrafts => {
       !parsed ||
       typeof parsed !== 'object' ||
       parsed.version !== WORKOUT_DRAFTS_VERSION ||
-      !Array.isArray(parsed.drafts)
+      !isBoundedArray(parsed.drafts, MAX_WORKOUT_DRAFTS)
     ) {
       return {};
     }

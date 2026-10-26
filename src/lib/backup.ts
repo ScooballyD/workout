@@ -4,6 +4,13 @@ import {
   buildPlanExerciseSetCounts,
   normalizePlanExerciseName,
 } from './plans.ts';
+import {
+  DATA_LIMITS,
+  getUtf8ByteLength,
+  isBoundedArray,
+  isBoundedText,
+  isSafeIntegerInRange,
+} from './data-limits.ts';
 
 const PLAN_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
 
@@ -22,7 +29,7 @@ export type ImportedBackupData = {
   settings: Settings;
 };
 
-type ImportValidationResult =
+export type ImportValidationResult =
   | {
       ok: true;
       value: ImportedBackupData;
@@ -38,11 +45,12 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
-const isPositiveInteger = (value: unknown): value is number =>
-  Number.isInteger(value) && typeof value === 'number' && value > 0;
+const isBoundedPositiveInteger = (value: unknown, maximum: number): value is number =>
+  isSafeIntegerInRange(value, 1, maximum);
 
-const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string');
+const isScheduledExerciseArray = (value: unknown): value is string[] =>
+  isBoundedArray<string>(value, DATA_LIMITS.maxScheduledExercisesPerDay) &&
+  value.every((item) => isBoundedText(item, DATA_LIMITS.maxTextLength));
 
 const isSetLog = (value: unknown): value is SetLog =>
   isObject(value) &&
@@ -51,7 +59,7 @@ const isSetLog = (value: unknown): value is SetLog =>
   typeof value.completed === 'boolean';
 
 const normalizeLogArray = (value: unknown): Array<SetLog | undefined> | null => {
-  if (!Array.isArray(value)) {
+  if (!isBoundedArray(value, DATA_LIMITS.maxLogsPerExercise)) {
     return null;
   }
 
@@ -85,10 +93,10 @@ const normalizeExercise = (value: unknown): Exercise | null => {
   const sets = value.sets;
   const logs = normalizeLogArray(value.logs);
   if (
-    typeof value.id !== 'string' ||
-    typeof value.name !== 'string' ||
-    !isPositiveInteger(sets) ||
-    typeof value.reps !== 'string' ||
+    !isBoundedText(value.id, DATA_LIMITS.maxIdentifierLength) ||
+    !isBoundedText(value.name, DATA_LIMITS.maxTextLength) ||
+    !isBoundedPositiveInteger(sets, DATA_LIMITS.maxSetsPerExercise) ||
+    !isBoundedText(value.reps, DATA_LIMITS.maxTextLength) ||
     logs === null
   ) {
     return null;
@@ -122,7 +130,7 @@ const normalizeExercise = (value: unknown): Exercise | null => {
 };
 
 const normalizeExercises = (value: unknown): Exercise[] | null => {
-  if (!Array.isArray(value)) {
+  if (!isBoundedArray(value, DATA_LIMITS.maxExercises)) {
     return null;
   }
 
@@ -141,16 +149,16 @@ const normalizeExercises = (value: unknown): Exercise[] | null => {
 const isPrHistoryEntry = (value: unknown): value is PR['history'][number] =>
   isObject(value) &&
   isFiniteNumber(value.weight) &&
-  typeof value.date === 'string';
+  isBoundedText(value.date, DATA_LIMITS.maxDateLength);
 
 const normalizePr = (value: unknown): PR | null => {
   if (
     !isObject(value) ||
-    typeof value.exerciseId !== 'string' ||
-    typeof value.exerciseName !== 'string' ||
+    !isBoundedText(value.exerciseId, DATA_LIMITS.maxIdentifierLength) ||
+    !isBoundedText(value.exerciseName, DATA_LIMITS.maxTextLength) ||
     !isFiniteNumber(value.weight) ||
-    typeof value.date !== 'string' ||
-    !Array.isArray(value.history) ||
+    !isBoundedText(value.date, DATA_LIMITS.maxDateLength) ||
+    !isBoundedArray(value.history, DATA_LIMITS.maxPrHistoryEntries) ||
     !value.history.every(isPrHistoryEntry)
   ) {
     return null;
@@ -166,7 +174,7 @@ const normalizePr = (value: unknown): PR | null => {
 };
 
 const normalizePrs = (value: unknown): PR[] | null => {
-  if (!Array.isArray(value)) {
+  if (!isBoundedArray(value, DATA_LIMITS.maxPrRecords)) {
     return null;
   }
 
@@ -193,17 +201,23 @@ const normalizePlanDay = (
   }
 
   const workoutId = value.workoutId;
-  if (workoutId !== undefined && typeof workoutId !== 'string') {
+  if (
+    workoutId !== undefined &&
+    !isBoundedText(workoutId, DATA_LIMITS.maxIdentifierLength)
+  ) {
     return null;
   }
 
   const exercises = value.exercises;
-  if (exercises !== undefined && !isStringArray(exercises)) {
+  if (exercises !== undefined && !isScheduledExerciseArray(exercises)) {
     return null;
   }
 
   const description = value.description;
-  if (description !== undefined && typeof description !== 'string') {
+  if (
+    description !== undefined &&
+    !isBoundedText(description, DATA_LIMITS.maxTextLength)
+  ) {
     return null;
   }
 
@@ -253,9 +267,18 @@ const normalizePlanExerciseSetCounts = (
     return null;
   }
 
+  const exerciseNames = Object.keys(value);
+  if (exerciseNames.length > DATA_LIMITS.maxPlanExerciseSetCountEntries) {
+    return null;
+  }
+
   const counts: Record<string, number> = {};
-  for (const [exerciseName, count] of Object.entries(value)) {
-    if (!isPositiveInteger(count)) {
+  for (const exerciseName of exerciseNames) {
+    const count = value[exerciseName];
+    if (
+      !isBoundedText(exerciseName, DATA_LIMITS.maxTextLength) ||
+      !isBoundedPositiveInteger(count, DATA_LIMITS.maxSetsPerExercise)
+    ) {
       return null;
     }
 
@@ -273,7 +296,10 @@ const normalizePlanDeload = (
     return null;
   }
 
-  if (value.enabled !== true || !isPositiveInteger(value.baseDurationWeeks)) {
+  if (
+    value.enabled !== true ||
+    !isBoundedPositiveInteger(value.baseDurationWeeks, DATA_LIMITS.maxPlanWeeks)
+  ) {
     return null;
   }
 
@@ -290,11 +316,9 @@ const normalizePlanDeload = (
 const normalizePlan = (value: unknown): TrainingPlan | null => {
   if (
     !isObject(value) ||
-    typeof value.id !== 'string' ||
-    typeof value.name !== 'string' ||
-    !isPositiveInteger(value.durationWeeks) ||
-    !isPositiveInteger(value.currentWeek) ||
-    !isPositiveInteger(value.currentDay)
+    !isBoundedText(value.id, DATA_LIMITS.maxIdentifierLength) ||
+    !isBoundedText(value.name, DATA_LIMITS.maxTextLength) ||
+    !isBoundedPositiveInteger(value.durationWeeks, DATA_LIMITS.maxPlanWeeks)
   ) {
     return null;
   }
@@ -302,6 +326,12 @@ const normalizePlan = (value: unknown): TrainingPlan | null => {
   const durationWeeks = value.durationWeeks;
   const currentWeek = value.currentWeek;
   const currentDay = value.currentDay;
+  if (
+    !isBoundedPositiveInteger(currentWeek, durationWeeks + 1) ||
+    !isBoundedPositiveInteger(currentDay, durationWeeks * 7 + 1)
+  ) {
+    return null;
+  }
   const schedule = normalizeSchedule(value.schedule);
   if (!schedule) {
     return null;
@@ -349,7 +379,7 @@ const normalizePlan = (value: unknown): TrainingPlan | null => {
 };
 
 const normalizePlans = (value: unknown): TrainingPlan[] | null => {
-  if (!Array.isArray(value)) {
+  if (!isBoundedArray(value, DATA_LIMITS.maxPlans)) {
     return null;
   }
 
@@ -443,7 +473,7 @@ export const validateImportedBackup = (
 
   let activePlanId: string | null = null;
   if (value.activePlanId !== undefined && value.activePlanId !== null) {
-    if (typeof value.activePlanId !== 'string') {
+    if (!isBoundedText(value.activePlanId, DATA_LIMITS.maxIdentifierLength)) {
       return { ok: false, error: 'INVALID BACKUP FILE: active plan is malformed' };
     }
     activePlanId = value.activePlanId;
@@ -468,6 +498,13 @@ export const validateImportedBackup = (
 export const parseImportedBackupFile = (
   raw: string
 ): ImportValidationResult => {
+  if (getUtf8ByteLength(raw) > DATA_LIMITS.maxBackupBytes) {
+    return {
+      ok: false,
+      error: 'INVALID BACKUP FILE: file exceeds 2 MiB limit',
+    };
+  }
+
   try {
     return validateImportedBackup(JSON.parse(raw));
   } catch {

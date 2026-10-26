@@ -326,6 +326,31 @@ configured:
 Do not install another JDK solely for key generation unless Android Studio's
 bundled runtime is unavailable.
 
+## 12. Recovery Protection Must Be Independent Of Error Messages
+
+### Issue And Failure Mode
+
+Invalid saved data must not be replaced by fallback defaults on startup. A
+recovery guard inferred from a warning's current kind can be accidentally
+disabled when a failed import, export, or reset displays a different error.
+The next ordinary edit may then overwrite the original saved value.
+
+### Root Cause And Safe Pattern
+
+Error presentation is transient; permission to resume automatic persistence
+is a separate lifecycle decision. Keep recovery protection latched until a
+successful validated reload/import or an explicit successful overwrite/reset.
+Use one complete canonical snapshot so a failed write cannot partially apply
+an import. Keep legacy keys intact during migration and reject excessive raw
+bytes before parsing or allocating from saved counts.
+
+### Verification
+
+Exercise invalid startup data followed by a failed import and an ordinary edit
+with writes restored. The original raw saved value must survive both the edit
+and reload. Also verify quota failure/retry, legacy migration, and imports with
+large counts in small files using synthetic storage only.
+
 ## Quick Start For Future Agents
 
 Before large or risky work:

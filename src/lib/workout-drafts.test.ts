@@ -5,6 +5,7 @@ import {
   convertWorkoutDraftWeights,
   createWorkoutDraftKey,
   getWorkoutDraft,
+  normalizeWorkoutDraftArray,
   parseWorkoutDrafts,
   pruneWorkoutDrafts,
   removeWorkoutDraft,
@@ -168,5 +169,32 @@ test('workout draft storage rejects entries with only default-sourced fields', (
   assert.deepEqual(
     parseWorkoutDrafts(JSON.stringify({ version: 1, drafts: [defaultOnly] })),
     {}
+  );
+});
+
+test('strict draft normalization preserves valid sources and rejects an invalid member', () => {
+  const valid = draft(benchSet(), {
+    weightSource: 'propagated',
+    repsSource: 'manual',
+  });
+
+  assert.deepEqual(normalizeWorkoutDraftArray([valid]), {
+    [createWorkoutDraftKey(valid)]: valid,
+  });
+  assert.equal(
+    normalizeWorkoutDraftArray([valid, { ...valid, exerciseId: 'x'.repeat(129) }]),
+    null
+  );
+});
+
+test('strict draft normalization bounds count, plan day, and set index before use', () => {
+  assert.equal(normalizeWorkoutDraftArray(new Array(10_001)), null);
+  assert.equal(
+    normalizeWorkoutDraftArray([draft(benchSet(), { planDay: 3_642 })]),
+    null
+  );
+  assert.equal(
+    normalizeWorkoutDraftArray([draft(benchSet(), { setIndex: 100 })]),
+    null
   );
 });

@@ -28,16 +28,10 @@ import {
 import { Header } from './components/Header';
 import { cn } from './lib/utils';
 import {
-  DEFAULT_SETTINGS,
   type ImportedBackupData,
-  parseImportedBackupFile,
-  normalizeExercisesForStorage,
-  normalizePlansForStorage,
-  normalizePrsForStorage,
-  normalizeSettings,
-  parseStoredString,
-  parseStoredValue,
 } from './lib/backup';
+import { readImportedBackupFile } from './lib/backup-file.ts';
+import { DATA_LIMITS } from './lib/data-limits.ts';
 import { createId } from './lib/id';
 import { getNextIncompleteSetIndex } from './lib/exercise-progress';
 import {
@@ -80,20 +74,28 @@ import {
 import { buildTodayExercises } from './lib/today-exercises.ts';
 import { completeWorkoutExercises } from './lib/workout-completion';
 import {
-  WORKOUT_DRAFTS_STORAGE_KEY,
   convertWorkoutDraftWeights,
   getWorkoutDraft,
-  parseWorkoutDrafts,
   pruneWorkoutDrafts,
   removeWorkoutDraft,
   removeWorkoutDraftsForExercise,
   removeWorkoutDraftsForPlan,
-  serializeWorkoutDrafts,
   upsertWorkoutDraft,
   type WorkoutDrafts,
 } from './lib/workout-drafts.ts';
+import {
+  commitImportedWorkoutState,
+  createDefaultWorkoutState,
+  exportRawStoredData,
+  exportWorkoutBackup,
+  loadWorkoutState,
+  resolveRecoveryLock,
+  saveWorkoutState,
+  wipeWorkoutState,
+  type WorkoutState,
+} from './lib/workout-storage.ts';
 import { Exercise, PR, TrainingPlan, Settings, SetLog } from './types';
-import { INITIAL_EXERCISES, INITIAL_PRS } from './constants';
+import { INITIAL_EXERCISES } from './constants';
 import {
   DEFAULT_PRIMARY_MUSCLE_GROUP,
   PRIMARY_MUSCLE_GROUPS,
@@ -103,6 +105,11 @@ import {
 const PRVaultPage = React.lazy(() => import('./pages/PRVault'));
 
 const PLAN_DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
+
+const createFreshWorkoutState = () => createDefaultWorkoutState(INITIAL_EXERCISES);
+const createWipeWorkoutState = () => createDefaultWorkoutState(
+  INITIAL_EXERCISES.map((exercise) => ({ ...exercise, sets: 2 }))
+);
 
 type PlanEditorDay = {
   type: 'workout' | 'rest';
@@ -1445,9 +1452,9 @@ const SettingsPage = ({
   exercises: Exercise[];
   onToggleUnit: () => void;
   onToggleRestDays: () => void;
-  onWipeData: () => void;
+  onWipeData: () => { ok: true } | { ok: false; error: string };
   onExportData: () => void;
-  onImportData: (data: ImportedBackupData) => void;
+  onImportData: (data: ImportedBackupData) => { ok: true } | { ok: false; error: string };
   onSaveExerciseEdits: (args: {
     exerciseId: string;
     nextName: string;
@@ -1458,24 +1465,38 @@ const SettingsPage = ({
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
   const [showManageExercises, setShowManageExercises] = useState(false);
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const importTokenRef = React.useRef(0);
   const editingExercise = exercises.find((exercise) => exercise.id === editingExerciseId) ?? null;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const result = parseImportedBackupFile((evt.target?.result as string) ?? '');
-      if (result.ok) {
-        onImportData(result.value);
-        return;
-      }
-
-      alert('error' in result ? result.error : 'INVALID BACKUP FILE');
-    };
-    reader.readAsText(file);
+    const token = ++importTokenRef.current;
+    setIsImporting(true);
+    setImportError(null);
     e.target.value = '';
+    const result = await readImportedBackupFile(file, (acceptedFile) =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(reader.error ?? new Error('unknown read error'));
+        reader.onabort = () => reject(new DOMException('File read aborted', 'AbortError'));
+        reader.readAsText(acceptedFile as File);
+      })
+    );
+    if (token !== importTokenRef.current) return;
+    setIsImporting(false);
+    if ('error' in result) {
+      setImportError(result.error);
+      return;
+    }
+    const committed = onImportData(result.value);
+    if ('error' in committed) {
+      setImportError(committed.error);
+    }
   };
 
   return (
@@ -1549,11 +1570,12 @@ const SettingsPage = ({
           <Download size={24} className="text-secondary" />
         </button>
 
-        <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleFileChange} />
-        <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none">
-          <span className="text-xl font-bold uppercase tracking-wider group-hover:text-primary">IMPORT BACKUP</span>
+        <input ref={fileInputRef} type="file" accept=".json" className="hidden" disabled={isImporting} onChange={handleFileChange} />
+        <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="flex items-center justify-between h-16 px-4 border-b-2 border-surface bg-black group hover:bg-surface transition-none disabled:opacity-50">
+          <span className="text-xl font-bold uppercase tracking-wider group-hover:text-primary">{isImporting ? 'READING BACKUP' : 'IMPORT BACKUP'}</span>
           <RefreshCw size={24} className="text-primary" />
         </button>
+        {importError ? <p role="alert" className="mx-4 mt-3 border-2 border-danger p-3 font-mono text-xs text-danger">{importError}</p> : null}
 
         <div className="mt-16 px-4">
           <h2 className="text-sm text-danger uppercase tracking-widest mb-4 font-mono">DANGER ZONE</h2>
@@ -1580,7 +1602,10 @@ const SettingsPage = ({
               <p className="font-mono text-sm mb-8">ARE YOU ABSOLUTELY SURE? ALL WORKOUT LOGS, PRS, AND PLANS WILL BE PERMANENTLY DELETED.</p>
               <div className="flex flex-col gap-4">
                 <button
-                  onClick={() => { onWipeData(); setShowWipeConfirm(false); }}
+                  onClick={() => {
+                    const result = onWipeData();
+                    if (result.ok) setShowWipeConfirm(false);
+                  }}
                   className="brutal-btn bg-danger border-black text-black shadow-none"
                 >
                   CONFIRM WIPE
@@ -1624,56 +1649,54 @@ const SettingsPage = ({
 // --- Main App ---
 
 export default function App() {
-  const [exercises, setExercises] = useState<Exercise[]>(() => {
-    return parseStoredValue(
-      localStorage.getItem('workout_exercises'),
-      normalizeExercisesForStorage,
-      INITIAL_EXERCISES.map((exercise) => ({
-        ...exercise,
-        sets: 2,
-      }))
+  const initialLoadRef = useRef<ReturnType<typeof loadWorkoutState> | null>(null);
+  if (!initialLoadRef.current) {
+    initialLoadRef.current = loadWorkoutState(
+      () => window.localStorage,
+      createFreshWorkoutState()
     );
-  });
-  const [prs, setPrs] = useState<PR[]>(() => {
-    return parseStoredValue(
-      localStorage.getItem('workout_prs'),
-      normalizePrsForStorage,
-      INITIAL_PRS
-    );
-  });
-  const [plans, setPlans] = useState<TrainingPlan[]>(() => {
-    return parseStoredValue(
-      localStorage.getItem('workout_plans'),
-      normalizePlansForStorage,
-      []
-    );
-  });
-  const [activePlanId, setActivePlanId] = useState<string | null>(() => {
-    return parseStoredString(localStorage.getItem('workout_activePlanId'), null);
-  });
-  const [settings, setSettings] = useState<Settings>(() => {
-    return parseStoredValue(
-      localStorage.getItem('workout_settings'),
-      normalizeSettings,
-      DEFAULT_SETTINGS
-    );
-  });
-  const [workoutDrafts, setWorkoutDrafts] = useState<WorkoutDrafts>(() =>
-    parseWorkoutDrafts(localStorage.getItem(WORKOUT_DRAFTS_STORAGE_KEY))
-  );
+  }
+  const initialLoad = initialLoadRef.current;
+  const [workoutState, setWorkoutState] = useState<WorkoutState>(initialLoad.state);
+  const [storageWarning, setStorageWarning] = useState<{
+    kind: 'recovery' | 'save' | 'cleanup';
+    message: string;
+  } | null>(() => initialLoad.recoveryError
+    ? { kind: 'recovery', message: initialLoad.recoveryError }
+    : initialLoad.saveError
+      ? { kind: 'save', message: initialLoad.saveError }
+      : null);
+  const storageRef = useRef(initialLoad.storage);
+  const [recoveryLocked, setRecoveryLocked] = useState(Boolean(initialLoad.recoveryError));
+  const skipNextSaveRef = useRef(true);
+  const { exercises, prs, plans, activePlanId, settings, drafts: workoutDrafts } = workoutState;
+  const updateStateField = <K extends keyof WorkoutState>(
+    key: K,
+    action: React.SetStateAction<WorkoutState[K]>
+  ) => {
+    setWorkoutState((current) => ({
+      ...current,
+      [key]: typeof action === 'function'
+        ? (action as (value: WorkoutState[K]) => WorkoutState[K])(current[key])
+        : action,
+    }));
+  };
+  const setExercises: React.Dispatch<React.SetStateAction<Exercise[]>> = (action) => updateStateField('exercises', action);
+  const setPrs: React.Dispatch<React.SetStateAction<PR[]>> = (action) => updateStateField('prs', action);
+  const setPlans: React.Dispatch<React.SetStateAction<TrainingPlan[]>> = (action) => updateStateField('plans', action);
+  const setActivePlanId: React.Dispatch<React.SetStateAction<string | null>> = (action) => updateStateField('activePlanId', action);
+  const setSettings: React.Dispatch<React.SetStateAction<Settings>> = (action) => updateStateField('settings', action);
+  const setWorkoutDrafts: React.Dispatch<React.SetStateAction<WorkoutDrafts>> = (action) => updateStateField('drafts', action);
 
-  useEffect(() => { localStorage.setItem('workout_exercises', JSON.stringify(exercises)); }, [exercises]);
-  useEffect(() => { localStorage.setItem('workout_prs', JSON.stringify(prs)); }, [prs]);
-  useEffect(() => { localStorage.setItem('workout_plans', JSON.stringify(plans)); }, [plans]);
-  useEffect(() => { if (activePlanId) localStorage.setItem('workout_activePlanId', activePlanId); else localStorage.removeItem('workout_activePlanId'); }, [activePlanId]);
-  useEffect(() => { localStorage.setItem('workout_settings', JSON.stringify(settings)); }, [settings]);
   useEffect(() => {
-    if (Object.keys(workoutDrafts).length === 0) {
-      localStorage.removeItem(WORKOUT_DRAFTS_STORAGE_KEY);
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
       return;
     }
-    localStorage.setItem(WORKOUT_DRAFTS_STORAGE_KEY, serializeWorkoutDrafts(workoutDrafts));
-  }, [workoutDrafts]);
+    if (recoveryLocked || !storageRef.current) return;
+    const result = saveWorkoutState(storageRef.current, workoutState);
+    setStorageWarning('error' in result ? { kind: 'save', message: result.error } : null);
+  }, [workoutState]);
   useEffect(() => {
     if (activePlanId && !plans.some((plan) => plan.id === activePlanId)) {
       setActivePlanId(null);
@@ -1782,7 +1805,9 @@ export default function App() {
     if (!exercise || !normalizedExerciseName || !exerciseIsInActivePlan) {
       setExercises((prev) =>
         prev.map((candidate) =>
-          candidate.id === exId ? { ...candidate, sets: candidate.sets + 1 } : candidate
+          candidate.id === exId && candidate.sets < DATA_LIMITS.maxSetsPerExercise
+            ? { ...candidate, sets: candidate.sets + 1 }
+            : candidate
         )
       );
       return;
@@ -1798,8 +1823,11 @@ export default function App() {
           plan.schedule,
           plan.exerciseSetCounts
         );
-        nextCounts[normalizedExerciseName] =
-          (nextCounts[normalizedExerciseName] ?? 2) + 1;
+        const currentCount = nextCounts[normalizedExerciseName] ?? 2;
+        if (currentCount >= DATA_LIMITS.maxSetsPerExercise) {
+          return plan;
+        }
+        nextCounts[normalizedExerciseName] = currentCount + 1;
 
         return {
           ...plan,
@@ -2000,23 +2028,54 @@ export default function App() {
   };
 
   const handleExportData = () => {
-    const data = { version: 1, exportedAt: new Date().toISOString(), exercises, prs, plans, activePlanId, settings };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const exported = exportWorkoutBackup(workoutState, new Date().toISOString());
+    if ('error' in exported) {
+      setStorageWarning({ kind: 'save', message: exported.error });
+      return;
+    }
+    downloadJson(
+      exported.json,
+      `workout-backup-${getLocalCalendarDateString()}.json`
+    );
+  };
+
+  const downloadJson = (json: string, filename: string) => {
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `workout-backup-${getLocalCalendarDateString()}.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const getWritableStorage = () => {
+    if (storageRef.current) return storageRef.current;
+    try {
+      storageRef.current = window.localStorage;
+      return storageRef.current;
+    } catch (error) {
+      const message = `STORAGE ACCESS FAILED: ${error instanceof Error ? error.message : 'unknown error'}`;
+      setRecoveryLocked(true);
+      setStorageWarning({ kind: 'recovery', message });
+      return undefined;
+    }
+  };
+
   const handleImportData = (data: ImportedBackupData) => {
-    setExercises(data.exercises);
-    setPrs(data.prs);
-    setPlans(data.plans);
-    setActivePlanId(data.activePlanId);
-    setSettings(data.settings);
-    setWorkoutDrafts({});
+    const storage = getWritableStorage();
+    if (!storage) return { ok: false as const, error: 'IMPORT FAILED: storage is unavailable' };
+    const result = commitImportedWorkoutState(storage, data);
+    if ('error' in result) {
+      setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'operation-failed'));
+      setStorageWarning({ kind: 'save', message: result.error });
+      return result;
+    }
+    skipNextSaveRef.current = true;
+    setWorkoutState(result.state);
+    setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'import-succeeded'));
+    setStorageWarning(null);
+    return { ok: true as const };
   };
 
   const applyExerciseManagementState = (nextState: {
@@ -2047,7 +2106,7 @@ export default function App() {
       nextPrimaryMuscle,
     });
 
-    if (!result.ok) {
+    if ('error' in result) {
       return result;
     }
 
@@ -2068,17 +2127,76 @@ export default function App() {
   };
 
   const handleWipeData = () => {
-    setExercises(
-      INITIAL_EXERCISES.map((exercise) => ({
-        ...exercise,
-        sets: 2,
-      }))
+    const storage = getWritableStorage();
+    if (!storage) return { ok: false as const, error: 'WIPE FAILED: storage is unavailable' };
+    const result = wipeWorkoutState(storage, createWipeWorkoutState());
+    if ('error' in result) {
+      setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'operation-failed'));
+      setStorageWarning({ kind: 'save', message: result.error });
+      return result;
+    }
+    skipNextSaveRef.current = true;
+    setWorkoutState(result.state);
+    setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'wipe-succeeded'));
+    setStorageWarning(result.cleanupError
+      ? { kind: 'cleanup', message: result.cleanupError }
+      : null);
+    return { ok: true as const };
+  };
+
+  const handleRetrySave = () => {
+    const storage = getWritableStorage();
+    if (!storage) return;
+    const result = saveWorkoutState(storage, workoutState);
+    setStorageWarning('error' in result ? { kind: 'save', message: result.error } : null);
+  };
+
+  const handleOverwriteSavedData = () => {
+    const storage = getWritableStorage();
+    if (!storage) return;
+    const result = saveWorkoutState(storage, workoutState);
+    if ('error' in result) {
+      setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'operation-failed'));
+      setStorageWarning({ kind: 'recovery', message: result.error });
+      return;
+    }
+    setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'overwrite-succeeded'));
+    setStorageWarning(null);
+  };
+
+  const handleRetryLoad = () => {
+    const retried = loadWorkoutState(
+      () => window.localStorage,
+      createFreshWorkoutState()
     );
-    setPrs(INITIAL_PRS);
-    setPlans([]);
-    setActivePlanId(null);
-    setSettings(DEFAULT_SETTINGS);
-    setWorkoutDrafts({});
+    if (retried.storage) {
+      storageRef.current = retried.storage;
+    }
+    if (retried.recoveryError) {
+      setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'operation-failed'));
+      setStorageWarning({ kind: 'recovery', message: retried.recoveryError });
+      return;
+    }
+    skipNextSaveRef.current = true;
+    setWorkoutState(retried.state);
+    setRecoveryLocked((locked) => resolveRecoveryLock(locked, 'retry-load-succeeded'));
+    setStorageWarning(retried.saveError
+      ? { kind: 'save', message: retried.saveError }
+      : null);
+  };
+
+  const handleExportRawSavedData = () => {
+    const storage = getWritableStorage();
+    if (!storage) return;
+    const exported = exportRawStoredData(storage, new Date().toISOString());
+    if ('error' in exported) {
+      setStorageWarning({ kind: 'recovery', message: exported.error });
+      return;
+    }
+    downloadJson(
+      exported.json,
+      `workout-raw-storage-recovery-${getLocalCalendarDateString()}.json`
+    );
   };
 
   const activePlan = plans.find(p => p.id === activePlanId);
@@ -2169,6 +2287,37 @@ export default function App() {
     <Router>
       <AndroidBackHandler />
       <div className="min-h-screen bg-black text-text-main flex flex-col">
+        {storageWarning ? (
+          <div role="alert" className="sticky top-0 z-[80] border-b-4 border-danger bg-black px-4 py-3">
+            <div className="mx-auto flex w-full max-w-md flex-col gap-3">
+              <p className="font-mono text-xs font-bold uppercase text-danger">{storageWarning.message}</p>
+              {recoveryLocked ? (
+                <p className="font-mono text-[11px] leading-relaxed text-text-main">
+                  SAVED DATA WAS NOT LOADED. THE APP IS SHOWING SAFE IN-MEMORY FALLBACK DATA. EXPORT CURRENT DATA INCLUDES ONLY WHAT IS SHOWN AND EDITS MADE THIS SESSION; IT DOES NOT INCLUDE THE UNREADABLE SAVED DATA.
+                </p>
+              ) : storageWarning.kind === 'save' ? (
+                <p className="font-mono text-[11px] leading-relaxed text-text-main">
+                  CURRENT EDITS REMAIN IN MEMORY. EXPORT PENDING EDITS DOWNLOADS THAT UNSAVED IN-MEMORY STATE.
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {!recoveryLocked && storageWarning.kind === 'save' ? (
+                  <button onClick={handleRetrySave} className="border-2 border-danger px-3 py-2 font-mono text-xs font-bold uppercase text-danger">Retry save</button>
+                ) : null}
+                {recoveryLocked ? (
+                  <>
+                    <button onClick={handleRetryLoad} className="border-2 border-primary px-3 py-2 font-mono text-xs font-bold uppercase text-primary">Retry loading saved data</button>
+                    <button onClick={handleExportRawSavedData} className="border-2 border-secondary px-3 py-2 font-mono text-xs font-bold uppercase text-secondary">Export raw saved data</button>
+                    <button onClick={handleOverwriteSavedData} className="border-2 border-danger px-3 py-2 font-mono text-xs font-bold uppercase text-danger">Overwrite saved data</button>
+                  </>
+                ) : null}
+                <button onClick={handleExportData} className="border-2 border-secondary px-3 py-2 font-mono text-xs font-bold uppercase text-secondary">
+                  {!recoveryLocked && storageWarning.kind === 'save' ? 'Export pending edits' : 'Export current data'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <Routes>
           <Route path="/" element={
             !activePlan || planIsComplete || !todaySchedule ? (
