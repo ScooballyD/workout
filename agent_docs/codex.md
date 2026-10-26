@@ -351,6 +351,24 @@ with writes restored. The original raw saved value must survive both the edit
 and reload. Also verify quota failure/retry, legacy migration, and imports with
 large counts in small files using synthetic storage only.
 
+## 13. Generated Schedule Text Needs An Aggregate Bound
+
+### Issue And Root Cause
+
+The plan editor generates descriptions by joining exercise names. Applying
+the 200-code-unit single-name limit to that aggregate rejects ordinary
+app-generated workouts, including save/export and legacy migration.
+
+### Safe Pattern And Verification
+
+Use the shared derived schedule-description limit: maximum names per day
+times maximum name length, plus join separators. Keep individual-name and
+schedule-count bounds, and reject invalid normalized editor additions before
+updating schedule or associated muscle metadata. Do not silently truncate
+descriptions or inflate all text limits. Test editor-generated data through
+save, export/re-import and legacy migration, not just isolated validators;
+also test exact/max+1 boundaries and uppercase expansion of names.
+
 ## Quick Start For Future Agents
 
 Before large or risky work:

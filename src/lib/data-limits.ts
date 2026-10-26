@@ -1,3 +1,6 @@
+const maxScheduledExercisesPerDay = 100;
+const maxTextLength = 200;
+
 export const DATA_LIMITS = {
   maxBackupBytes: 2 * 1024 * 1024,
   maxExercises: 1_000,
@@ -6,11 +9,14 @@ export const DATA_LIMITS = {
   maxSetsPerExercise: 100,
   maxLogsPerExercise: 100,
   maxPlanWeeks: 520,
-  maxScheduledExercisesPerDay: 100,
+  maxScheduledExercisesPerDay,
   maxPlanExerciseSetCountEntries: 1_000,
   maxPrHistoryEntries: 60,
   maxIdentifierLength: 128,
-  maxTextLength: 200,
+  maxTextLength,
+  maxScheduleDescriptionLength:
+    maxScheduledExercisesPerDay * maxTextLength +
+    (maxScheduledExercisesPerDay - 1) * 2,
   maxDateLength: 64,
 } as const;
 

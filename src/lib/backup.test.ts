@@ -12,6 +12,11 @@ import {
   validateImportedBackup,
 } from './backup.ts';
 import { DATA_LIMITS, getUtf8ByteLength } from './data-limits.ts';
+import { addExerciseToPlanDay, type PlanEditorDay } from './plan-editor.ts';
+
+const expectedMaxScheduleDescriptionLength =
+  DATA_LIMITS.maxScheduledExercisesPerDay * DATA_LIMITS.maxTextLength +
+  (DATA_LIMITS.maxScheduledExercisesPerDay - 1) * 2;
 
 const createValidSchedule = (): TrainingPlan['schedule'] => ({
   MON: {
@@ -412,7 +417,9 @@ test('validateImportedBackup enforces identifier, text, and date lengths', () =>
   backup.plans[0].name = 'n'.repeat(200);
   backup.activePlanId = 'i'.repeat(128);
   backup.plans[0].schedule.MON.workoutId = 'i'.repeat(128);
-  backup.plans[0].schedule.MON.description = 'd'.repeat(200);
+  backup.plans[0].schedule.MON.description = 'd'.repeat(
+    expectedMaxScheduleDescriptionLength
+  );
   expectBackupValid(backup);
 
   backup.exercises[0].id += 'i';
@@ -432,7 +439,11 @@ test('validateImportedBackup rejects each overlong bounded string field', () => 
     (backup) => { backup.plans[0].name = 'n'.repeat(201); },
     (backup) => { backup.activePlanId = 'i'.repeat(129); },
     (backup) => { backup.plans[0].schedule.MON.workoutId = 'i'.repeat(129); },
-    (backup) => { backup.plans[0].schedule.MON.description = 'd'.repeat(201); },
+    (backup) => {
+      backup.plans[0].schedule.MON.description = 'd'.repeat(
+        expectedMaxScheduleDescriptionLength + 1
+      );
+    },
     (backup) => { backup.plans[0].schedule.MON.exercises = ['n'.repeat(201)]; },
   ];
 
@@ -440,6 +451,41 @@ test('validateImportedBackup rejects each overlong bounded string field', () => 
     const backup = createValidBackup();
     mutate(backup);
     expectBackupInvalid(backup);
+  }
+});
+
+test('validateImportedBackup accepts an editor-produced nine-exercise description over 200 characters', () => {
+  const backup = createValidBackup();
+  const exerciseNames = Array.from({ length: 9 }, (_, index) =>
+    `EXERCISE ${index}`.padEnd(index === 8 ? 25 : 22, 'X')
+  );
+  const day = exerciseNames.reduce<PlanEditorDay>(
+    (currentDay, exerciseName) => addExerciseToPlanDay(currentDay, exerciseName),
+    { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' }
+  );
+  assert.equal(day.description.length, 217);
+  backup.plans[0].schedule.MON = day;
+
+  expectBackupValid(backup);
+});
+
+test('validateImportedBackup applies the derived description boundary to workout and rest days', () => {
+  for (const type of ['workout', 'rest'] as const) {
+    const accepted = createValidBackup();
+    accepted.plans[0].schedule.MON = {
+      type,
+      exercises: ['BENCH PRESS'],
+      description: 'd'.repeat(expectedMaxScheduleDescriptionLength),
+    };
+    expectBackupValid(accepted);
+
+    const rejected = createValidBackup();
+    rejected.plans[0].schedule.MON = {
+      type,
+      exercises: ['BENCH PRESS'],
+      description: 'd'.repeat(expectedMaxScheduleDescriptionLength + 1),
+    };
+    expectBackupInvalid(rejected);
   }
 });
 
@@ -550,6 +596,7 @@ test('DATA_LIMITS exposes the shared bounded-data policy', () => {
     maxPrHistoryEntries: 60,
     maxIdentifierLength: 128,
     maxTextLength: 200,
+    maxScheduleDescriptionLength: 20_198,
     maxDateLength: 64,
   });
   assert.equal(getUtf8ByteLength('é'), 2);

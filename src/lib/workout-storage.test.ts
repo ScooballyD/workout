@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ImportedBackupData } from './backup.ts';
+import type { TrainingPlan } from '../types.ts';
+import { DATA_LIMITS } from './data-limits.ts';
+import { addExerciseToPlanDay, type PlanEditorDay } from './plan-editor.ts';
 import type { WorkoutState, StorageLike } from './workout-storage.ts';
 import {
   LEGACY_STORAGE_KEYS,
@@ -15,6 +18,10 @@ import {
   saveWorkoutState,
   wipeWorkoutState,
 } from './workout-storage.ts';
+
+const expectedMaxScheduleDescriptionLength =
+  DATA_LIMITS.maxScheduledExercisesPerDay * DATA_LIMITS.maxTextLength +
+  (DATA_LIMITS.maxScheduledExercisesPerDay - 1) * 2;
 
 class FakeStorage implements StorageLike {
   values = new Map<string, string>();
@@ -78,6 +85,40 @@ const pendingState = (): WorkoutState => ({
       repsSource: 'propagated',
     },
   },
+});
+
+const createMaxEditorPlan = (): TrainingPlan => {
+  const workoutDay = Array.from(
+    { length: DATA_LIMITS.maxScheduledExercisesPerDay },
+    (_, index) => `${index}`.padEnd(DATA_LIMITS.maxTextLength, 'x')
+  ).reduce<PlanEditorDay>(
+    (day, exerciseName) => addExerciseToPlanDay(day, exerciseName),
+    { type: 'workout', exercises: [], description: 'ASSIGN ROUTINE' }
+  );
+
+  assert.equal(workoutDay.exercises.length, DATA_LIMITS.maxScheduledExercisesPerDay);
+  assert.equal(workoutDay.description.length, expectedMaxScheduleDescriptionLength);
+
+  return {
+    id: 'max-editor-plan',
+    name: 'MAX EDITOR PLAN',
+    durationWeeks: 4,
+    currentWeek: 1,
+    currentDay: 1,
+    schedule: Object.fromEntries(
+      ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((day) => [
+        day,
+        day === 'MON' ? workoutDay : { type: 'rest' as const },
+      ])
+    ),
+  };
+};
+
+const maxEditorState = (): WorkoutState => ({
+  ...validImport(),
+  plans: [createMaxEditorPlan()],
+  activePlanId: 'max-editor-plan',
+  drafts: {},
 });
 
 test('default state clones the supplied starter exercises without changing set counts', () => {
@@ -302,6 +343,51 @@ test('compact export stays importable and excludes drafts', () => {
   assert.equal('drafts' in parsed, false);
   assert.equal(parsed.version, 1);
   assert.equal(commitImportedWorkoutState(new FakeStorage(), parsed).ok, true);
+});
+
+test('an editor-produced maximum schedule saves, exports, and re-imports', () => {
+  const state = maxEditorState();
+  const storage = new FakeStorage();
+
+  assert.equal(saveWorkoutState(storage, state).ok, true);
+  assert.equal(
+    loadWorkoutState(() => storage).state.plans[0].schedule.MON.description?.length,
+    expectedMaxScheduleDescriptionLength
+  );
+
+  const exported = exportWorkoutBackup(state, '2026-10-26T12:00:00.000Z');
+  assert.equal(exported.ok, true);
+  if (!exported.ok) throw new Error('expected export to succeed');
+  const importedStorage = new FakeStorage();
+  assert.equal(
+    commitImportedWorkoutState(importedStorage, JSON.parse(exported.json)).ok,
+    true
+  );
+  assert.equal(
+    loadWorkoutState(() => importedStorage).state.plans[0].schedule.MON.description?.length,
+    expectedMaxScheduleDescriptionLength
+  );
+});
+
+test('legacy migration preserves an editor-produced maximum schedule', () => {
+  const state = maxEditorState();
+  const storage = new FakeStorage();
+  storage.values.set(LEGACY_STORAGE_KEYS.exercises, JSON.stringify(state.exercises));
+  storage.values.set(LEGACY_STORAGE_KEYS.prs, JSON.stringify(state.prs));
+  storage.values.set(LEGACY_STORAGE_KEYS.plans, JSON.stringify(state.plans));
+  storage.values.set(LEGACY_STORAGE_KEYS.activePlanId, state.activePlanId ?? '');
+  storage.values.set(LEGACY_STORAGE_KEYS.settings, JSON.stringify(state.settings));
+
+  const loaded = loadWorkoutState(() => storage);
+
+  assert.equal(loaded.recoveryError, undefined);
+  assert.equal(loaded.saveError, undefined);
+  assert.equal(
+    loaded.state.plans[0].schedule.MON.description?.length,
+    expectedMaxScheduleDescriptionLength
+  );
+  assert.equal(storage.writes.length, 1);
+  assert.equal(storage.values.has(LEGACY_STORAGE_KEYS.plans), true);
 });
 
 test('raw recovery export preserves malformed saved text without parsing or writing', () => {

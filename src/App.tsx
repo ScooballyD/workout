@@ -53,6 +53,7 @@ import { applyWorkoutPrUpdates } from './lib/pr-vault';
 import {
   addExerciseToPlanDay,
   buildPlanExerciseDraft,
+  getPlanExerciseAdditionError,
   getPlanExerciseSuggestions,
   removeExerciseFromPlanDay,
   type PlanExerciseOption,
@@ -908,6 +909,7 @@ const CreatePlan = ({
   const [deloadEnabled, setDeloadEnabled] = useState(() => planToEdit?.deload?.enabled ?? false);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [workoutInput, setWorkoutInput] = useState('');
+  const [workoutInputError, setWorkoutInputError] = useState<string | null>(null);
   const [selectedPrimaryMuscle, setSelectedPrimaryMuscle] = useState<PrimaryMuscleGroup>(DEFAULT_PRIMARY_MUSCLE_GROUP);
   const [exercisePrimaryMuscles, setExercisePrimaryMuscles] = useState<Record<string, PrimaryMuscleGroup>>(
     () =>
@@ -931,14 +933,22 @@ const CreatePlan = ({
     setDeloadEnabled(planToEdit?.deload?.enabled ?? false);
     setEditingDay(null);
     setWorkoutInput('');
+    setWorkoutInputError(null);
     setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
   }, [editPlanId, navigate, planToEdit]);
 
   const handleAddWorkout = (day: string, value = workoutInput) => {
+    const validationError = getPlanExerciseAdditionError(schedule[day], value);
+    if (validationError) {
+      setWorkoutInputError(validationError);
+      return;
+    }
+
     const draft = buildPlanExerciseDraft(existingExercises, value, selectedPrimaryMuscle);
     if (!draft) {
       setEditingDay(null);
       setWorkoutInput('');
+      setWorkoutInputError(null);
       setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
       return;
     }
@@ -953,6 +963,7 @@ const CreatePlan = ({
     }));
     setEditingDay(null);
     setWorkoutInput('');
+    setWorkoutInputError(null);
     setSelectedPrimaryMuscle(DEFAULT_PRIMARY_MUSCLE_GROUP);
   };
 
@@ -1115,7 +1126,10 @@ const CreatePlan = ({
                               className="bg-black border border-primary text-[10px] px-2 py-1 text-primary focus:outline-none w-32 uppercase font-mono"
                               placeholder="WORKOUT NAME..."
                               value={workoutInput}
-                              onChange={(e) => setWorkoutInput(e.target.value)}
+                              onChange={(e) => {
+                                setWorkoutInput(e.target.value);
+                                setWorkoutInputError(null);
+                              }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
@@ -1126,10 +1140,15 @@ const CreatePlan = ({
                             <button onClick={() => handleAddWorkout(day)} className="text-primary hover:text-white">
                               <Check size={14} />
                             </button>
-                            <button onClick={() => { setEditingDay(null); setWorkoutInput(''); }} className="text-danger hover:text-white">
+                            <button onClick={() => { setEditingDay(null); setWorkoutInput(''); setWorkoutInputError(null); }} className="text-danger hover:text-white">
                               <Plus className="rotate-45" size={14} />
                             </button>
                           </div>
+                          {workoutInputError && (
+                            <p role="alert" className="max-w-48 text-[10px] font-mono font-bold text-danger uppercase">
+                              {workoutInputError}
+                            </p>
+                          )}
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-mono text-muted uppercase tracking-widest">TAG</span>
                             <select

@@ -216,7 +216,7 @@ const normalizePlanDay = (
   const description = value.description;
   if (
     description !== undefined &&
-    !isBoundedText(description, DATA_LIMITS.maxTextLength)
+    !isBoundedText(description, DATA_LIMITS.maxScheduleDescriptionLength)
   ) {
     return null;
   }

@@ -11,3 +11,4 @@ preview.stderr.log
 build.stdout.log
 build.stderr.log
 output/
+/private
